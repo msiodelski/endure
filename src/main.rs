@@ -17,7 +17,7 @@ fn main() {
     let handle = thread::spawn(|| {
         let mut dispatcher = dispatcher::Dispatcher::new();
         let filter = Filter::new().bootp_server_relay();
-        dispatcher.add_listener("bridge100", filter).expect("listener already added");
+        dispatcher.add_listener("wlo1", filter).expect("listener already added");
         dispatcher.dispatch();
     });
 
@@ -25,10 +25,10 @@ fn main() {
     signal_guard.at_exit(move |sig| {
         let signal_name: &str;
         match sig {
-            2 => signal_name = "Ctrl-C",
-            3 => signal_name = "Quit signal",
-            15 => signal_name = "sigterm signal",
-            _ => signal_name = "other signal",
+            2 => signal_name = "Ctrl+C",
+            3 => signal_name = "QUIT signal",
+            15 => signal_name = "SIGTERM signal",
+            _ => signal_name = "signal",
         }
         println!("received {}", signal_name);
         println!("shutting down...");

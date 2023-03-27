@@ -45,12 +45,6 @@ pub enum Error {
 }
 
 /// Runs the installed listeners until the stop signal occurs.
-///
-/// ### Future Work
-///
-/// Besides installing and running the listeners the dispatcher will
-/// also be responsible for other IO operations in the future. In
-/// particular, it will receive and process administrative commands.
 pub struct Dispatcher {
     listeners: HashMap<String, Listener>,
 }
@@ -73,7 +67,7 @@ impl Dispatcher {
     /// it returns [Error::AddListenerExists] error.
     ///
     /// The [Filter] applies filtering rules for packets capturing. For example,
-    /// it can be used to filter only DHCPv4 packets, only UDP packets, select
+    /// it can be used to filter only BOOTP packets, only UDP packets, select
     /// port number etc.
     pub fn add_listener(&mut self, interface_name: &str, filter: Filter) -> Result<(), Error> {
         if self.listeners.contains_key(interface_name) {
@@ -97,26 +91,16 @@ impl Dispatcher {
         }
         loop {
             if STOP.load(Ordering::Acquire) {
-                self.stop();
                 break;
             }
             match rx.recv_timeout(Duration::from_millis(1000)) {
                 Ok(packet) => println!("received packet {:?}", packet),
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => {
-                    self.stop();
                     break
                 }
             };
         }
-    }
-
-    /// Stops the listeners before exiting.
-    fn stop(&mut self) {
-        for listener in &mut self.listeners {
-            listener.1.stop();
-        }
-        println!("stopped listeners");
     }
 }
 
@@ -137,11 +121,5 @@ mod tests {
         assert!(dispatcher.listeners.contains_key("lo"));
         assert!(dispatcher.listeners.contains_key("lo0"));
         assert!(!dispatcher.listeners.contains_key("bridge"));
-    }
-
-    #[test]
-    fn stop_not_started_listeners() {
-        let mut dispatcher = Dispatcher::new();
-        dispatcher.stop();
     }
 }
