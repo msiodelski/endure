@@ -4,9 +4,8 @@
 
 use pcap::{Capture, PacketHeader};
 use std::sync::{Arc, Mutex};
-use std::thread::JoinHandle;
 use std::{thread};
-use std::sync::mpsc::{self, Sender, TryRecvError};
+use std::sync::mpsc::Sender;
 
 /// Encapsulates the captured packet.
 ///
@@ -32,6 +31,14 @@ pub struct PacketWrapper {
 /// - [Active] - the listener is capturing the packets.
 ///
 /// There can be at most one listener instance for each interface.
+///
+/// # Issues with Stopping the Listener
+///
+/// A started listener can't be stopped. Its thread performs the blocking
+/// calls to receive packets. In the initial program version, we tried to
+/// set a timeout on the capture to break the blocking calls, but didn't work
+/// on the Linux systems using `TPACKET_V3`. See
+/// <https://www.tcpdump.org/faq.html#q15> for details.
 pub struct Listener {
     state: Option<Box<dyn State>>
 }
@@ -41,11 +48,30 @@ pub struct Listener {
 /// A listener can be in [Inactive] or [Active] state.
 trait State {
     /// Applies the filter to be used for capturing the packets.
+    ///
+    /// # Arguments
+    ///
+    /// - `packet_filter` - a packet filter instance used for capturing
+    ///   a specific type of the packets.
+    ///
+    /// # Usage Note
+    ///
+    /// A filter is only applied when the listener is in the [Inactive]
+    /// state.
     fn filter(self: Box<Self>, packet_filter: Filter) -> Box<dyn State>;
+
     /// Starts the listener thread if not started yet.
+    ///
+    /// # Arguments
+    ///
+    /// - `sender` - sender side of the channel to provide the captured
+    ///   packets to the main thread.
+    ///
+    /// # Usage Note
+    ///
+    /// When the listener has already been started calling this function
+    /// has no effect.
     fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State>;
-    /// Stops the listener thread if not started yet.
-    fn stop(self: Box<Self>) -> Box<dyn State>;
 }
 
 /// Represents a state of the [Listener] before it is run.
@@ -57,16 +83,7 @@ struct Inactive {
 }
 
 /// Represents a state of the running [Listener].
-struct Active {
-    /// Name of the interface from which the packets are captured.
-    interface_name: String,
-    /// A filter used in packets capturing.
-    filter: Option<Filter>,
-    /// An instance of the sender used by the listener to request that the thread stops.
-    stop_sender: Option<std::sync::mpsc::Sender<bool>>,
-    /// A handle to the listener thread capturing the packets.
-    thread: Option<JoinHandle<()>>,
-}
+struct Active {}
 
 /// An enum of protocols used for filtering.
 #[derive(Clone, Debug, PartialEq)]
@@ -79,7 +96,7 @@ enum Proto {
 
 /// Represents a filter used to capture selected packets.
 ///
-/// Example usage:
+/// # Example Usage
 ///
 /// ```rust
 /// let filter = Filter::new().udp().port(10067);
@@ -92,6 +109,11 @@ pub struct Filter {
 
 impl Listener {
     /// Creates a new listener instance for the specified interface.
+    ///
+    /// # Arguments
+    ///
+    /// `interface_name` - name of the interface on which the listener should
+    /// capture the packets.
     pub fn new(interface_name: &str) -> Listener {
         Listener {
             state: Some(Box::new(Inactive{
@@ -102,6 +124,11 @@ impl Listener {
     }
 
     /// Adds a capture filter for the listener.
+    ///
+    /// # Arguments
+    ///
+    /// - `packet_filter` - a packet filter instance used for capturing
+    ///   a specific type of the packets.
     pub fn filter(&mut self, packet_filter: Filter) {
         if let Some(s) = self.state.take() {
             self.state = Some(s.filter(packet_filter))
@@ -111,10 +138,11 @@ impl Listener {
     /// Starts the listener.
     ///
     /// It applies the specified filter and spawns a new thread to capture packets.
-    /// It changes the listener's state to [Active]. The listener can be stopped
-    /// (and the corresponding thread destroyed) by calling [Listener::stop()].
+    /// It changes the listener's state to [Active].
     ///
-    /// The sender as a sender side of a channel that the listener should use to
+    /// # Arguments
+    ///
+    /// The `sender` instance is a sender side of a channel that the listener should use to
     /// provide the received packets to the caller. The caller is responsible for
     /// creating the sender and the receiver instance. It is safe to share the same
     /// sender between multiple threads. Typically, there is only one receiver instance
@@ -122,16 +150,6 @@ impl Listener {
     pub fn start(&mut self, sender: Arc<Mutex<Sender<PacketWrapper>>>) {
         if let Some(s) = self.state.take() {
             self.state = Some(s.start(sender))
-        }
-    }
-
-    /// Stops the listener.
-    ///
-    /// It stops the listener thread and changes its state to [Inactive]. If the
-    /// listener is already in the inactive state, it does nothing.
-    pub fn stop(&mut self) {
-        if let Some(s) = self.state.take() {
-            self.state = Some(s.stop())
         }
     }
 }
@@ -148,7 +166,6 @@ impl State for Inactive {
     fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
         let mut capture = Capture::from_device(self.interface_name.as_str())
             .expect("failed to open capture")
-            .timeout(1000)
             .open()
             .expect("failed to activate capture");
 
@@ -156,10 +173,8 @@ impl State for Inactive {
             capture.filter(filter.to_text().as_str(), false).expect("failed to set filter program");
         }
 
-        let (stop_sender, stop_receiver) = mpsc::channel::<bool>();
         let filter = self.filter.clone();
-
-        let thread = thread::spawn(move || {
+        let _ = thread::spawn(move || {
             loop {
                 if let Ok(packet) = capture.next_packet() {
                     let packet = PacketWrapper{
@@ -169,26 +184,10 @@ impl State for Inactive {
                     };
                     sender.lock().unwrap().send(packet).expect("failed to send received packet");
                 }
-                match stop_receiver.try_recv() {
-                    Err(TryRecvError::Empty) => continue,
-                    _ => break,
-                }
             }
-            println!("shutting down the listener thread");
         });
-        Box::new(Active{
-            interface_name: self.interface_name.to_string(),
-            filter: self.filter,
-            stop_sender: Some(stop_sender),
-            thread: Some(thread),
-        })
+        Box::new(Active{})
     }
-
-    fn stop(self: Box<Self>) -> Box<dyn State> {
-        self
-    }
-
-
 }
 
 impl State for Active {
@@ -198,30 +197,6 @@ impl State for Active {
 
     fn start(self: Box<Self>, _sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
         self
-    }
-
-    fn stop(mut self: Box<Self>) -> Box<dyn State> {
-        if let Some(tx) = self.stop_sender.take() {
-            tx.send(true).expect("failed to stop the listener");
-            if let Some(handle) = self.thread.take() {
-                handle.join().expect("failed while waiting for the listener to stop")
-            }
-        }
-        Box::new(Inactive{
-            interface_name: self.interface_name.to_string(),
-            filter: self.filter.clone(),
-        })
-    }
-}
-
-
-impl Drop for Active {
-    fn drop(&mut self) {
-        drop(self.stop_sender.take());
-
-        if let Some(handle) = self.thread.take() {
-            handle.join().expect("failed while waiting for the listener to stop")
-        }
     }
 }
 
@@ -246,7 +221,7 @@ impl Filter {
 
     /// Creates a filter for capturing BOOTP packets at specified port.
     ///
-    /// The following usage:
+    /// # Usage
     ///
     /// ```rust
     /// let filter = Filter::new().udp().port(67);
@@ -265,7 +240,7 @@ impl Filter {
         }
     }
 
-    /// Creates a filter for capturing DHCPv6 pacjets sent to a relay or server.
+    /// Creates a filter for capturing DHCPv6 packets sent to a relay or server.
     ///
     /// It sets a default port 547 used by the DHCPv6 servers and relays. In test
     /// labs, the servers can sometimes run on a different port. In this case,
@@ -281,7 +256,7 @@ impl Filter {
 
     /// Creates a filter for capturing DHCPv6 packets at specified port.
     ///
-    /// The following usage:
+    /// # Usage
     ///
     /// ```rust
     /// let filter = Filter.new().udp().port(547);
