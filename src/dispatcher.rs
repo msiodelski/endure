@@ -1,4 +1,4 @@
-//! dispatcher is a module serving as a core of the endure program.
+//! `dispatcher` is a module serving as a core of the endure program.
 //!
 //! It installs the listeners and receives captured packets from them.
 //! The dispatcher will eventually send the received packets to the

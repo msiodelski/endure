@@ -9,3 +9,4 @@ edition = "2021"
 clap = { version = "4.1.13", features = ["derive"] }
 ctrlc = "3.2.5"
 pcap = "1.0.0"
+thiserror = "1.0.40"

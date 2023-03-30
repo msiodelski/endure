@@ -8,6 +8,7 @@ use cli::Cli;
 pub mod cli;
 pub mod dispatcher;
 pub mod listener;
+pub mod proto;
 
 fn main() {
     let cli = Cli::parse();
