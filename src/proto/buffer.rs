@@ -396,7 +396,7 @@ mod tests {
 
         let read = buf.read_null_terminated(0, 5);
         assert!(read.is_err());
-        assert_eq!(read.unwrap_err().to_string(), "error converting packet data into an utf8 string at position: 0, read length: 5")
+        assert_eq!(read.unwrap_err().to_string(), "error converting packet data into a utf8 string at position: 0, read length: 5")
     }
 
     #[test]
