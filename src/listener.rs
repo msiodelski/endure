@@ -1,4 +1,4 @@
-//! listener is a module providing a function to efficiently listen on one
+//! `listener` is a module providing a function to efficiently listen on one
 //! or multiple interfaces and return the received packets over the callbacks
 //! mechanism to a caller.
 
