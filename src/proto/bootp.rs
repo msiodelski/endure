@@ -396,7 +396,7 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use crate::proto::bootp::*;
-    use crate::proto::tests::common::{TestBootpPacket};
+    use crate::proto::tests::common::TestBootpPacket;
 
     #[test]
     fn valid_packet() {
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(parsed_packet.hops(), Ok(1));
         assert_eq!(parsed_packet.xid(), Ok(0x43557883));
         assert_eq!(parsed_packet.secs(), Ok(1));
-        assert_eq!(parsed_packet.unused(), Ok(0));
+        assert_eq!(parsed_packet.unused(), Ok(32768));
         assert_eq!(parsed_packet.ciaddr(), Ok(&Ipv4Addr::new(192, 0, 2, 22)));
         assert_eq!(parsed_packet.yiaddr(), Ok(&Ipv4Addr::new(192, 0, 2, 23)));
         assert_eq!(parsed_packet.siaddr(), Ok(&Ipv4Addr::new(10, 15, 23, 12)));

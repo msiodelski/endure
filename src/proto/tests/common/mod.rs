@@ -5,7 +5,7 @@ const VALID_BOOTP_PACKET: &'static [u8] = &[
     1,                            // hops (1 byte)
     67, 85, 120, 131,             // xid (4 bytes)
     0, 1,                         // secs (2 bytes) = 1 s
-    0, 0,                         // reserved (2 bytes)
+    128, 0,                       // reserved (2 bytes)
     192, 0, 2, 22,                // ciaddr (4 bytes)
     192, 0, 2, 23,                // yiaddr (4 bytes)
     10, 15, 23, 12,               // siaddr (4 bytes)

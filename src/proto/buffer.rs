@@ -103,7 +103,7 @@ impl <'a> ReceiveBuffer<'a> {
     /// # Parameters
     ///
     /// - `N` is a number of bytes to read
-    /// - `pos` is a read position, where 0 points to the buffer start
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
     ///
     /// # Result
     ///
@@ -136,7 +136,7 @@ impl <'a> ReceiveBuffer<'a> {
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to start reading from (0 is a buffer start)
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
     /// - `len` is a number of bytes to read
     ///
     /// # Result
@@ -181,16 +181,17 @@ impl <'a> ReceiveBuffer<'a> {
     /// string that has a maximum length of 64 bytes.
     ///
     /// In practice, the strings sometimes lack the null character at the end. In these
-    /// cases, the function reads all `max_len` bytes.
+    /// cases, the function reads all `max_len` bytes or all bytes until the end of the
+    /// buffer.
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to start reading from (0 is a buffer start)
-    /// - `max_len` is a maximum number of bytes to read (if null character is not found earlier)
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
+    /// - `max_len` is a maximum number of bytes to read (if null character is not found)
     ///
     /// # Result
     ///
-    /// It returns a string converted from UTF-8. If such a conversion fails it returns the
+    /// It returns a string converted from UTF-8. If such the conversion fails it returns the
     /// [BufferError::ReadUtf8Conversion] error. If the `pos` is out of bounds, it returns
     /// the [BufferError::ReadOutOfBounds].
     pub fn read_null_terminated(&mut self, pos: u32, max_len: usize) -> Result<String> {
@@ -230,7 +231,7 @@ impl <'a> ReceiveBuffer<'a> {
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to reading from (0 is a buffer start)
+    /// - `pos` is a read start position
     ///
     /// # Result
     ///
@@ -244,7 +245,7 @@ impl <'a> ReceiveBuffer<'a> {
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to start reading from (0 is a buffer start)
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
     ///
     /// # Result
     ///
@@ -259,7 +260,7 @@ impl <'a> ReceiveBuffer<'a> {
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to start reading from (0 is a buffer start)
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
     ///
     /// # Result
     ///
@@ -274,7 +275,7 @@ impl <'a> ReceiveBuffer<'a> {
     ///
     /// # Parameters
     ///
-    /// - `pos` is a position to start reading from (0 is a buffer start)
+    /// - `pos` is a read start position, where 0 is the first byte in the buffer
     ///
     /// It reads 4 bytes and converts them to an IPv4 address. If the specified
     /// position is out of bounds the [BufferError::ReadOutOfBounds] is returned.
