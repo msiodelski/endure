@@ -9,45 +9,45 @@
 //! This module should be used for processing the BOOTP messages. The [super::dhcp::v4]
 //! module should be used for parsing the DHCPv4 messages.
 //!
-use std::{net::Ipv4Addr};
-use super::buffer::{ReceiveBuffer, ClampedNumber, BufferError};
+use super::buffer::{BufferError, ClampedNumber, ReceiveBuffer};
+use std::net::Ipv4Addr;
 
 /// `opcode` position.
-const OPCODE_POS: u32 = 0;
+pub const OPCODE_POS: u32 = 0;
 /// `htype` position.
-const HTYPE_POS: u32 = 1;
+pub const HTYPE_POS: u32 = 1;
 /// `hlen` position.
-const HLEN_POS: u32 = 2;
+pub const HLEN_POS: u32 = 2;
 /// Ethernet hardware address length (MAC address length).
-const HLEN_ETHERNET: usize = 6;
+pub const HLEN_ETHERNET: usize = 6;
 /// `hops` position.
-const HOPS_POS: u32 = 3;
+pub const HOPS_POS: u32 = 3;
 /// `xid` position.
-const XID_POS: u32 = 4;
+pub const XID_POS: u32 = 4;
 /// `secs` position.
-const SECS_POS: u32 = 8;
+pub const SECS_POS: u32 = 8;
 /// `unused` field position. It is used to carry the `flags` in DHCPv4.
-const UNUSED_POS: u32 = 10;
+pub const UNUSED_POS: u32 = 10;
 /// `ciaddr` position.
-const CIADDR_POS: u32 = 12;
+pub const CIADDR_POS: u32 = 12;
 /// `yiaddr` position.
-const YIADDR_POS: u32 = 16;
+pub const YIADDR_POS: u32 = 16;
 /// `siaddr` position.
-const SIADDR_POS: u32 = 20;
+pub const SIADDR_POS: u32 = 20;
 /// `giaddr` position.
-const GIADDR_POS: u32 = 24;
+pub const GIADDR_POS: u32 = 24;
 /// `chaddr` position.
-const CHADDR_POS: u32 = 28;
+pub const CHADDR_POS: u32 = 28;
 /// `chaddr` maximum length.
-const CHADDR_MAX_LEN: usize = 16;
+pub const CHADDR_MAX_LEN: usize = 16;
 /// `sname` position.
-const SNAME_POS: u32 = 44;
+pub const SNAME_POS: u32 = 44;
 /// `sname` maximum length.
-const SNAME_MAX_LEN: usize = 64;
+pub const SNAME_MAX_LEN: usize = 64;
 /// `file` position.
-const FILE_POS: u32 = 108;
+pub const FILE_POS: u32 = 108;
 /// `file` maximum length.
-const FILE_MAX_LEN: usize = 128;
+pub const FILE_MAX_LEN: usize = 128;
 
 /// An enum representing the bootp message types.
 ///
@@ -61,7 +61,7 @@ pub enum OpCode {
     /// A reply returned by the server to the client.
     BootReply,
     /// An invalid opcode value received in the parsed BOOTP message.
-    Invalid(u8)
+    Invalid(u8),
 }
 
 impl From<u8> for OpCode {
@@ -91,14 +91,14 @@ pub enum HType {
     /// Ethernet hardware type (1).
     Ethernet,
     /// All hardware types other than Ethernet.
-    Other(u8)
+    Other(u8),
 }
 
 impl From<u8> for HType {
     fn from(raw_code: u8) -> Self {
         match raw_code {
             1 => HType::Ethernet,
-            x => HType::Other(x)
+            x => HType::Other(x),
         }
     }
 }
@@ -110,7 +110,7 @@ impl From<u8> for HType {
 /// hardware type.
 pub struct HAddr {
     htype: HType,
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 impl HAddr {
@@ -121,10 +121,7 @@ impl HAddr {
     /// - `htype` is a hardware type
     /// - `data` is a variable length buffer holding the harware address
     pub fn new(htype: HType, data: Vec<u8>) -> HAddr {
-        HAddr {
-            htype,
-            data,
-        }
+        HAddr { htype, data }
     }
 
     /// Checks if the hardware address is invalid.
@@ -146,7 +143,7 @@ impl HAddr {
     }
 
     /// Returns the hardware address.
-    pub fn data(&self) -> &Vec::<u8> {
+    pub fn data(&self) -> &Vec<u8> {
         &self.data
     }
 }
@@ -204,12 +201,12 @@ pub struct PartiallyParsedState<'a> {
 /// accessing the named data fields carried in the packet.
 pub struct ReceivedPacket<'a, State> {
     /// Unparsed packet data.
-    data: &'a[u8],
+    data: &'a [u8],
     /// Packet state.
-    state: State
+    state: State,
 }
 
-impl <'a> ReceivedPacket <'a, RawState> {
+impl<'a> ReceivedPacket<'a, RawState> {
     /// Creates a new raw packet instance.
     ///
     /// # Parameters
@@ -247,15 +244,16 @@ impl <'a> ReceivedPacket <'a, RawState> {
     }
 }
 
-impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
+impl<'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
     /// Reads and caches `opcode`.
     pub fn opcode(&mut self) -> Result<&OpCode, BufferError> {
         if self.state.parsed_opcode.is_some() {
             return Ok(self.state.parsed_opcode.as_ref().unwrap());
         }
-        self.state.buffer.read_u8(OPCODE_POS).map(|code| {
-            &*self.state.parsed_opcode.insert(OpCode::from(code))
-        })
+        self.state
+            .buffer
+            .read_u8(OPCODE_POS)
+            .map(|code| &*self.state.parsed_opcode.insert(OpCode::from(code)))
     }
 
     /// Reads and caches `htype`.
@@ -263,9 +261,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_htype.is_some() {
             return Ok(self.state.parsed_htype.as_ref().unwrap());
         }
-        self.state.buffer.read_u8(HTYPE_POS).map(|htype| {
-            &*self.state.parsed_htype.insert(HType::from(htype))
-        })
+        self.state
+            .buffer
+            .read_u8(HTYPE_POS)
+            .map(|htype| &*self.state.parsed_htype.insert(HType::from(htype)))
     }
 
     /// Reads and caches `hlen`.
@@ -274,7 +273,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
             return Ok(self.state.parsed_hlen.as_ref().unwrap());
         }
         self.state.buffer.read_u8(HLEN_POS).map(|hlen| {
-            &*self.state.parsed_hlen.insert(ClampedNumber::new(1, CHADDR_MAX_LEN as u8, hlen))
+            &*self
+                .state
+                .parsed_hlen
+                .insert(ClampedNumber::new(1, CHADDR_MAX_LEN as u8, hlen))
         })
     }
 
@@ -283,9 +285,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_hops.is_some() {
             return Ok(self.state.parsed_hops.unwrap());
         }
-        self.state.buffer.read_u8(HOPS_POS).map(|hops| {
-            *self.state.parsed_hops.insert(hops)
-        })
+        self.state
+            .buffer
+            .read_u8(HOPS_POS)
+            .map(|hops| *self.state.parsed_hops.insert(hops))
     }
 
     /// Reads and caches `xid`.
@@ -293,9 +296,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_xid.is_some() {
             return Ok(self.state.parsed_xid.unwrap());
         }
-        self.state.buffer.read_u32(XID_POS).map(|xid| {
-            *self.state.parsed_xid.insert(xid)
-        })
+        self.state
+            .buffer
+            .read_u32(XID_POS)
+            .map(|xid| *self.state.parsed_xid.insert(xid))
     }
 
     /// Reads and caches `secs`.
@@ -303,9 +307,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_secs.is_some() {
             return Ok(self.state.parsed_secs.unwrap());
         }
-        self.state.buffer.read_u16(SECS_POS).map(|xid| {
-            *self.state.parsed_secs.insert(xid)
-        })
+        self.state
+            .buffer
+            .read_u16(SECS_POS)
+            .map(|xid| *self.state.parsed_secs.insert(xid))
     }
 
     /// Reads and caches `unused` field.
@@ -313,9 +318,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_unused.is_some() {
             return Ok(self.state.parsed_unused.unwrap());
         }
-        self.state.buffer.read_u16(UNUSED_POS).map(|unused| {
-            *self.state.parsed_unused.insert(unused)
-        })
+        self.state
+            .buffer
+            .read_u16(UNUSED_POS)
+            .map(|unused| *self.state.parsed_unused.insert(unused))
     }
 
     /// Reads and caches `ciaddr`.
@@ -323,9 +329,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_ciaddr.is_some() {
             return Ok(&self.state.parsed_ciaddr.as_ref().unwrap());
         }
-        self.state.buffer.read_ipv4(CIADDR_POS).map(|ciaddr| {
-            &*self.state.parsed_ciaddr.insert(ciaddr)
-        })
+        self.state
+            .buffer
+            .read_ipv4(CIADDR_POS)
+            .map(|ciaddr| &*self.state.parsed_ciaddr.insert(ciaddr))
     }
 
     /// Reads and caches `yiaddr`.
@@ -333,9 +340,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_yiaddr.is_some() {
             return Ok(&self.state.parsed_yiaddr.as_ref().unwrap());
         }
-        self.state.buffer.read_ipv4(YIADDR_POS).map(|yiaddr| {
-            &*self.state.parsed_yiaddr.insert(yiaddr)
-        })
+        self.state
+            .buffer
+            .read_ipv4(YIADDR_POS)
+            .map(|yiaddr| &*self.state.parsed_yiaddr.insert(yiaddr))
     }
 
     /// Reads and caches `siaddr`.
@@ -343,9 +351,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_siaddr.is_some() {
             return Ok(&self.state.parsed_siaddr.as_ref().unwrap());
         }
-        self.state.buffer.read_ipv4(SIADDR_POS).map(|siaddr| {
-            &*self.state.parsed_siaddr.insert(siaddr)
-        })
+        self.state
+            .buffer
+            .read_ipv4(SIADDR_POS)
+            .map(|siaddr| &*self.state.parsed_siaddr.insert(siaddr))
     }
 
     /// Reads and caches `giaddr`.
@@ -353,9 +362,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_giaddr.is_some() {
             return Ok(&self.state.parsed_giaddr.as_ref().unwrap());
         }
-        self.state.buffer.read_ipv4(GIADDR_POS).map(|giaddr| {
-            &*self.state.parsed_giaddr.insert(giaddr)
-        })
+        self.state
+            .buffer
+            .read_ipv4(GIADDR_POS)
+            .map(|giaddr| &*self.state.parsed_giaddr.insert(giaddr))
     }
 
     /// Reads and caches `chaddr`.
@@ -365,9 +375,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         }
         let htype = self.htype()?.clone();
         let hlen = self.hlen()?.get();
-        self.state.buffer.read_vec(CHADDR_POS, usize::from(hlen)).map(|chaddr| {
-            &*self.state.parsed_chaddr.insert(HAddr::new(htype, chaddr))
-        })
+        self.state
+            .buffer
+            .read_vec(CHADDR_POS, usize::from(hlen))
+            .map(|chaddr| &*self.state.parsed_chaddr.insert(HAddr::new(htype, chaddr)))
     }
 
     /// Reads and caches `sname`.
@@ -375,9 +386,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_sname.is_some() {
             return Ok(&self.state.parsed_sname.as_ref().unwrap());
         }
-        self.state.buffer.read_null_terminated(SNAME_POS, SNAME_MAX_LEN).map(|sname| {
-            &*self.state.parsed_sname.insert(sname)
-        })
+        self.state
+            .buffer
+            .read_null_terminated(SNAME_POS, SNAME_MAX_LEN)
+            .map(|sname| &*self.state.parsed_sname.insert(sname))
     }
 
     /// Reads and caches `file`.
@@ -385,9 +397,10 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         if self.state.parsed_file.is_some() {
             return Ok(&self.state.parsed_file.as_ref().unwrap());
         }
-        self.state.buffer.read_null_terminated(FILE_POS, FILE_MAX_LEN).map(|file| {
-            &*self.state.parsed_file.insert(file)
-        })
+        self.state
+            .buffer
+            .read_null_terminated(FILE_POS, FILE_MAX_LEN)
+            .map(|file| &*self.state.parsed_file.insert(file))
     }
 }
 
@@ -443,9 +456,9 @@ mod tests {
 
     #[test]
     fn other_chaddr_type() {
-        let test_packet = TestBootpPacket::new().
-            set(HTYPE_POS, &vec![2, 4]).
-            set(CHADDR_POS, &vec![1, 2, 3, 4]);
+        let test_packet = TestBootpPacket::new()
+            .set(HTYPE_POS, &vec![2, 4])
+            .set(CHADDR_POS, &vec![1, 2, 3, 4]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -460,10 +473,11 @@ mod tests {
     }
 
     #[test]
-    fn too_high_hlen () {
-        let test_packet = TestBootpPacket::new().
-            set(HLEN_POS, &vec![20]).
-            set(CHADDR_POS, &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+    fn too_high_hlen() {
+        let test_packet = TestBootpPacket::new().set(HLEN_POS, &vec![20]).set(
+            CHADDR_POS,
+            &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+        );
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -474,13 +488,15 @@ mod tests {
         let chaddr = chaddr.unwrap();
         assert!(chaddr.invalid());
         assert_eq!(*chaddr.htype(), HType::Ethernet);
-        assert_eq!(*chaddr.data(), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+        assert_eq!(
+            *chaddr.data(),
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        );
     }
 
     #[test]
     fn zero_hlen() {
-        let test_packet = TestBootpPacket::new().
-        set(HLEN_POS, &vec![0]);
+        let test_packet = TestBootpPacket::new().set(HLEN_POS, &vec![0]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -496,8 +512,7 @@ mod tests {
 
     #[test]
     fn empty_sname() {
-        let test_packet = TestBootpPacket::new().
-            set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
+        let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -509,8 +524,7 @@ mod tests {
 
     #[test]
     fn too_long_sname() {
-        let test_packet = TestBootpPacket::new().
-            set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
+        let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -522,8 +536,7 @@ mod tests {
 
     #[test]
     fn empty_file() {
-        let test_packet = TestBootpPacket::new().
-        set(FILE_POS, &vec![0; FILE_MAX_LEN]);
+        let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![0; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -535,8 +548,7 @@ mod tests {
 
     #[test]
     fn too_long_file() {
-        let test_packet = TestBootpPacket::new().
-            set(FILE_POS, &vec![65; FILE_MAX_LEN]);
+        let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![65; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(&test_packet.get());
         let mut parsed_packet = packet.into_parsable();

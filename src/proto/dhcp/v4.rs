@@ -10,7 +10,10 @@
 
 use std::net::Ipv4Addr;
 
-use crate::proto::{bootp::{self, HAddr}, buffer::{BufferError, ClampedNumber}};
+use crate::proto::{
+    bootp::{self, HAddr},
+    buffer::{BufferError, ClampedNumber},
+};
 
 /// Raw packet state.
 ///
@@ -18,7 +21,7 @@ use crate::proto::{bootp::{self, HAddr}, buffer::{BufferError, ClampedNumber}};
 /// state includes an unparsed buffer. The packet must be converted into the
 /// parsable state with the [ReceivedPacket::into_parsable] to parse the
 /// packet.
-struct RawState;
+pub struct RawState;
 
 /// Partially parsed packet state.
 ///
@@ -33,7 +36,7 @@ struct RawState;
 /// [PartiallyParsedState]. The cached value is returned the next time the same
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
-struct PartiallyParsedState<'a> {
+pub struct PartiallyParsedState<'a> {
     bootp: bootp::ReceivedPacket<'a, bootp::PartiallyParsedState<'a>>,
 }
 
@@ -51,34 +54,40 @@ struct PartiallyParsedState<'a> {
 /// accessing the named data fields carried in the packet.
 pub struct ReceivedPacket<'a, State> {
     /// Unparsed packet data.
-    data: &'a[u8],
+    data: &'a [u8],
     /// Packet state.
-    state: State
+    state: State,
 }
 
+/// A shorthand type for the raw packet.
+pub type RawPacket<'a> = ReceivedPacket<'a, RawState>;
+
+/// A shorthand type for the partially parsed packet.
+pub type PartiallyParsedPacket<'a> = ReceivedPacket<'a, PartiallyParsedState<'a>>;
+
 /// A structure representing an inbound DHCP option.
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub struct ReceivedOption<'a> {
     /// Option code.
     code: u8,
     /// Unparsed option data.
-    data: &'a[u8]
+    data: &'a [u8],
 }
 
 /// A structure representing the flags field in DHCP packet.
 pub struct Flags {
     /// Raw flags field value.
-    flags: u16
+    flags: u16,
 }
 
-impl <'a> ReceivedPacket<'a, RawState> {
-
+impl<'a> ReceivedPacket<'a, RawState> {
     /// Creates a new raw packet instance.
     ///
     /// # Parameters
     ///
     /// - `data` is a reference to the buffer holding the packet.
-    fn new(data: &'a [u8]) -> ReceivedPacket<'a, RawState> {
+    pub fn new(data: &'a [u8]) -> ReceivedPacket<'a, RawState> {
         ReceivedPacket {
             data,
             state: RawState,
@@ -86,23 +95,23 @@ impl <'a> ReceivedPacket<'a, RawState> {
     }
 
     /// Converts the packet to the BOOTP packet.
-    fn as_bootp(self) -> bootp::ReceivedPacket<'a, bootp::RawState> {
+    pub fn as_bootp(self) -> bootp::ReceivedPacket<'a, bootp::RawState> {
         bootp::ReceivedPacket::new(self.data)
     }
 
     /// Transitions the packet from the [RawState] to the [PartiallyParsedState].
-    fn into_parsable(self) -> ReceivedPacket<'a, PartiallyParsedState<'a>> {
+    pub fn into_parsable(&self) -> ReceivedPacket<'a, PartiallyParsedState<'a>> {
         let bootp = bootp::ReceivedPacket::new(self.data);
         ReceivedPacket::<'a, PartiallyParsedState> {
             data: self.data,
-            state: PartiallyParsedState::<'a>{
+            state: PartiallyParsedState::<'a> {
                 bootp: bootp.into_parsable(),
             },
         }
     }
 }
 
-impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
+impl<'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
     /// Reads and caches `opcode`.
     pub fn opcode(&mut self) -> Result<&bootp::OpCode, BufferError> {
         self.state.bootp.opcode()
@@ -135,9 +144,7 @@ impl <'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
 
     /// Reads and caches flags field.
     pub fn flags(&mut self) -> Result<Flags, BufferError> {
-        self.state.bootp.unused().map(|flags| {
-            Flags::new(flags)
-        })
+        self.state.bootp.unused().map(|flags| Flags::new(flags))
     }
 
     /// Reads and caches `ciaddr`.
@@ -183,9 +190,7 @@ impl Flags {
     ///
     /// - `flags` is a raw flags value.
     pub fn new(flags: u16) -> Flags {
-        Flags {
-            flags: flags,
-        }
+        Flags { flags: flags }
     }
 
     /// Checks if the broadcast flag (most significant bit) is set.
@@ -198,7 +203,11 @@ impl Flags {
 mod tests {
     use std::net::Ipv4Addr;
 
-    use crate::proto::{dhcp::v4::ReceivedPacket, bootp::{HType, OpCode}, tests::common::TestBootpPacket};
+    use crate::proto::{
+        bootp::{HType, OpCode},
+        dhcp::v4::ReceivedPacket,
+        tests::common::TestBootpPacket,
+    };
 
     use super::Flags;
 
