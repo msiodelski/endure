@@ -13,9 +13,9 @@
 //! Cli::parse().run();
 //! ```
 
-use std::sync::atomic::Ordering;
+use crate::{dispatcher, listener::Filter, timer};
 use clap::{Parser, Subcommand};
-use crate::{dispatcher, listener::Filter};
+use std::sync::atomic::Ordering;
 
 /// A structure holding parsed program arguments.
 #[derive(Parser)]
@@ -26,7 +26,7 @@ use crate::{dispatcher, listener::Filter};
 #[command(arg_required_else_help = true)]
 pub struct Cli {
     #[command(subcommand)]
-    commands: Option<Commands>
+    commands: Option<Commands>,
 }
 
 /// An enum that defines the supported subcommands.
@@ -40,7 +40,7 @@ enum Commands {
         /// Interface name.
         #[arg(short, long)]
         interface_name: String,
-    }
+    },
 }
 
 impl Cli {
@@ -63,7 +63,12 @@ impl Cli {
                     Cli::install_signal_handler();
                     let mut dispatcher = dispatcher::Dispatcher::new();
                     let filter = Filter::new().bootp_server_relay();
-                    dispatcher.add_listener(interface_name.as_str(), filter).expect("listener already added");
+                    dispatcher
+                        .add_listener(interface_name.as_str(), filter)
+                        .expect("listener already added");
+                    dispatcher
+                        .add_timer(timer::Type::DataScrape, 3000)
+                        .expect("timer already added");
                     dispatcher.dispatch();
                 }
             }
@@ -75,8 +80,7 @@ impl Cli {
     /// The signal handler runs in a thread. It sets the [dispatcher::STOP] value
     /// to notify the dispatcher that the program is terminating.
     fn install_signal_handler() {
-        ctrlc::set_handler(||
-            dispatcher::STOP.store(true, Ordering::Release)
-        ).expect("error setting Ctrl+C handler");            
+        ctrlc::set_handler(|| dispatcher::STOP.store(true, Ordering::Release))
+            .expect("error setting Ctrl+C handler");
     }
 }

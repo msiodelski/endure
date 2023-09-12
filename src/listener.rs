@@ -3,9 +3,11 @@
 //! mechanism to a caller.
 
 use pcap::{Capture, PacketHeader};
-use std::sync::{Arc, Mutex};
-use std::{thread};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+use crate::thread::Event;
 
 /// Encapsulates the captured packet.
 ///
@@ -40,7 +42,7 @@ pub struct PacketWrapper {
 /// on the Linux systems using `TPACKET_V3`. See
 /// <https://www.tcpdump.org/faq.html#q15> for details.
 pub struct Listener {
-    state: Option<Box<dyn State>>
+    state: Option<Box<dyn State>>,
 }
 
 /// A trait for a listener's state.
@@ -71,7 +73,7 @@ trait State {
     ///
     /// When the listener has already been started calling this function
     /// has no effect.
-    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State>;
+    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State>;
 }
 
 /// Represents a state of the [Listener] before it is run.
@@ -87,10 +89,14 @@ struct Active {}
 
 /// An enum of protocols used for filtering.
 #[derive(Clone, Debug, PartialEq)]
-enum Proto {
+pub enum Proto {
+    /// Filtering by BOOTP or DHCPv4 messages.
     Bootp,
+    /// Filtering by DHCPv6 messages.
     DHCPv6,
+    /// Filtering by UDP messages.
     UDP,
+    /// Filtering by TCP messages.
     TCP,
 }
 
@@ -116,10 +122,10 @@ impl Listener {
     /// capture the packets.
     pub fn new(interface_name: &str) -> Listener {
         Listener {
-            state: Some(Box::new(Inactive{
+            state: Some(Box::new(Inactive {
                 interface_name: interface_name.to_string(),
                 filter: None,
-            }))
+            })),
         }
     }
 
@@ -147,7 +153,7 @@ impl Listener {
     /// creating the sender and the receiver instance. It is safe to share the same
     /// sender between multiple threads. Typically, there is only one receiver instance
     /// collecting the packets from several threads.
-    pub fn start(&mut self, sender: Arc<Mutex<Sender<PacketWrapper>>>) {
+    pub fn start(&mut self, sender: Arc<Mutex<Sender<Event>>>) {
         if let Some(s) = self.state.take() {
             self.state = Some(s.start(sender))
         }
@@ -155,38 +161,42 @@ impl Listener {
 }
 
 impl State for Inactive {
-
     fn filter(self: Box<Self>, packet_filter: Filter) -> Box<dyn State> {
-        Box::new(Inactive{
+        Box::new(Inactive {
             interface_name: self.interface_name.to_string(),
             filter: Some(packet_filter),
         })
     }
 
-    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
+    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State> {
         let mut capture = Capture::from_device(self.interface_name.as_str())
             .expect("failed to open capture")
+            .timeout(1000)
             .open()
             .expect("failed to activate capture");
 
         if let Some(filter) = &self.filter {
-            capture.filter(filter.to_text().as_str(), false).expect("failed to set filter program");
+            capture
+                .filter(filter.to_text().as_str(), false)
+                .expect("failed to set filter program");
         }
 
         let filter = self.filter.clone();
-        let _ = thread::spawn(move || {
-            loop {
-                if let Ok(packet) = capture.next_packet() {
-                    let packet = PacketWrapper{
-                        header: packet.header.clone(),
-                        data: packet.data.to_vec(),
-                        filter: filter.clone(),
-                    };
-                    sender.lock().unwrap().send(packet).expect("failed to send received packet");
-                }
+        let _ = thread::spawn(move || loop {
+            if let Ok(packet) = capture.next_packet() {
+                let packet = PacketWrapper {
+                    header: packet.header.clone(),
+                    data: packet.data.to_vec(),
+                    filter: filter.clone(),
+                };
+                sender
+                    .lock()
+                    .unwrap()
+                    .send(Event::PacketReceived(packet))
+                    .expect("failed to send received packet");
             }
         });
-        Box::new(Active{})
+        Box::new(Active {})
     }
 }
 
@@ -195,7 +205,7 @@ impl State for Active {
         self
     }
 
-    fn start(self: Box<Self>, _sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
+    fn start(self: Box<Self>, _sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State> {
         self
     }
 }
@@ -203,7 +213,7 @@ impl State for Active {
 impl Filter {
     /// Instantiates an empty packet filter.
     pub fn new() -> Filter {
-        Filter{
+        Filter {
             proto: None,
             port: None,
         }
@@ -297,6 +307,11 @@ impl Filter {
             port: Some(port),
             ..self
         }
+    }
+
+    /// Returns protocol associated with the filter.
+    pub fn get_proto(self) -> Option<Proto> {
+        self.proto
     }
 
     /// Converts the filter to the text form.

@@ -17,9 +17,25 @@
 //! dispatcher.dispatch();
 //! ```
 
+use std::{
+    collections::HashMap,
+    io::stdout,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, RecvTimeoutError},
+        Arc, Mutex,
+    },
+    time::Duration,
+};
 
-use std::{collections::HashMap, sync::{mpsc::{self, RecvTimeoutError}, Arc, Mutex, atomic::{AtomicBool, Ordering}}, time::Duration};
-use crate::listener::{Filter, Listener, PacketWrapper};
+use csv::WriterBuilder;
+
+use crate::{
+    analyzer::Analyzer,
+    listener::{Filter, Listener},
+    thread::Event,
+    timer::{self, Inactive, TimerManager},
+};
 
 /// An atomic boolean value controlling program shutdown.
 ///
@@ -42,11 +58,18 @@ pub enum Error {
     /// yields this error. It can be returned by the
     /// [Dispatcher::add_listener] function.
     AddListenerExists,
+    /// Returns on an attempt to add a duplicate timer.
+    ///
+    /// There must be at most one timer registsred under a given
+    /// name. This error is returned by the [Dispatcher::add_timer]
+    /// function.
+    AddTimerExists,
 }
 
 /// Runs the installed listeners until the stop signal occurs.
 pub struct Dispatcher {
     listeners: HashMap<String, Listener>,
+    timer_manager: TimerManager<Inactive>,
 }
 
 impl Dispatcher {
@@ -55,8 +78,9 @@ impl Dispatcher {
     /// It creates an empty map of listeners. The caller should add
     /// the listeners using the [Dispatcher::add_listener] function.
     pub fn new() -> Dispatcher {
-        Dispatcher{
+        Dispatcher {
             listeners: HashMap::new(),
+            timer_manager: TimerManager::new(),
         }
     }
 
@@ -71,7 +95,7 @@ impl Dispatcher {
     /// port number etc.
     pub fn add_listener(&mut self, interface_name: &str, filter: Filter) -> Result<(), Error> {
         if self.listeners.contains_key(interface_name) {
-            return Err(Error::AddListenerExists)
+            return Err(Error::AddListenerExists);
         }
         let mut listener = Listener::new(interface_name);
         listener.filter(filter);
@@ -79,47 +103,87 @@ impl Dispatcher {
         Ok(())
     }
 
+    /// Attmpts to register new timer in the timer manager.
+    ///
+    /// # Parameters
+    ///
+    /// - `timer_type` - a unique type of the timer to be registered
+    /// - `interval_ms` - periodic timer interval in milliseconds
+    ///
+    /// # Result
+    ///
+    /// It returns the [timer::Error::AlreadyRegistered] error when the
+    /// timer has been already added.
+    pub fn add_timer(
+        &mut self,
+        timer_type: timer::Type,
+        interval_ms: u64,
+    ) -> Result<(), timer::Error> {
+        self.timer_manager.register_timer(timer_type, interval_ms)
+    }
+
     /// Captures the packets using the installed listeners.
     ///
-    /// It blocks until it observes that the [STOP] global value has been
+    /// It blocks until it observes that the [`STOP`] global value has been
     /// set to true.
-    pub fn dispatch(&mut self) {
-        let (tx, rx) = mpsc::channel::<PacketWrapper>();
+    pub fn dispatch(mut self) {
+        let (tx, rx) = mpsc::channel::<Event>();
         let tx = Arc::new(Mutex::new(tx));
         for listener in &mut self.listeners {
             listener.1.start(Arc::clone(&tx));
         }
+        self.timer_manager.into_active().run(Arc::clone(&tx));
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let mut wtr = WriterBuilder::new().has_headers(true).from_writer(stdout());
         loop {
             if STOP.load(Ordering::Acquire) {
                 break;
             }
             match rx.recv_timeout(Duration::from_millis(1000)) {
-                Ok(packet) => println!("received packet {:?}", packet),
+                Ok(event) => match event {
+                    Event::PacketReceived(packet) => {
+                        analyzer.receive(packet);
+                    }
+                    Event::TimerExpired(timer::Type::DataScrape) => {
+                        let report = analyzer.current_dhcpv4_report();
+                        wtr.serialize(report).unwrap();
+                        let _ = wtr.flush();
+                    }
+                },
                 Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => {
-                    break
-                }
+                Err(RecvTimeoutError::Disconnected) => break,
             };
         }
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::dispatcher::{Dispatcher, Error::AddListenerExists};
     use crate::listener::Filter;
+    use crate::timer;
 
     #[test]
     fn add_listener() {
         let mut dispatcher = Dispatcher::new();
         let filter = Filter::new().udp();
         assert_eq!(dispatcher.add_listener("lo", filter), Ok(()));
-        assert_eq!(dispatcher.add_listener("lo", Filter::new()), Err(AddListenerExists));
+        assert_eq!(
+            dispatcher.add_listener("lo", Filter::new()),
+            Err(AddListenerExists)
+        );
         assert_eq!(dispatcher.add_listener("lo0", Filter::new()), Ok(()));
         assert_eq!(dispatcher.listeners.len(), 2);
         assert!(dispatcher.listeners.contains_key("lo"));
         assert!(dispatcher.listeners.contains_key("lo0"));
         assert!(!dispatcher.listeners.contains_key("bridge"));
+    }
+
+    #[test]
+    fn add_duplicate_timer() {
+        let mut dispatcher = Dispatcher::new();
+        assert!(dispatcher.add_timer(timer::Type::DataScrape, 1).is_ok());
+        assert!(dispatcher.add_timer(timer::Type::DataScrape, 1).is_err());
     }
 }

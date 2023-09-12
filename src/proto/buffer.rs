@@ -1,7 +1,12 @@
 //! `buffer` is a module that provides mechanics for manipulating the data
 //! in the processed packets.
 
-use std::{io::{Cursor, Read, BufRead, self}, net::Ipv4Addr, vec, str::from_utf8};
+use std::{
+    io::{self, BufRead, Cursor, Read},
+    net::Ipv4Addr,
+    str::from_utf8,
+    vec,
+};
 use thiserror::Error;
 
 type Result<T> = std::result::Result<T, BufferError>;
@@ -48,19 +53,15 @@ pub struct ClampedNumber<T: PartialOrd> {
     clamped: T,
 }
 
-impl <T: PartialOrd + Copy> ClampedNumber<T> {
+impl<T: PartialOrd + Copy> ClampedNumber<T> {
     /// Instantiates the number with clamping.
     pub fn new(min: T, max: T, actual: T) -> ClampedNumber<T> {
         let clamped = match actual {
             actual if actual < min => min,
             actual if actual > max => max,
             _ => actual,
-
         };
-        ClampedNumber::<T> {
-            actual,
-            clamped,
-        }
+        ClampedNumber::<T> { actual, clamped }
     }
 
     /// Returns the clamped number (the number in range).
@@ -87,15 +88,13 @@ impl <T: PartialOrd + Copy> ClampedNumber<T> {
 /// the data seek to the specified positions. If the specified position or the read
 /// data length are out of bounds the [BufferError::ReadOutOfBounds] error is returned.
 pub struct ReceiveBuffer<'a> {
-    buffer: &'a[u8]
+    buffer: &'a [u8],
 }
 
-impl <'a> ReceiveBuffer<'a> {
+impl<'a> ReceiveBuffer<'a> {
     /// Instantiates a buffer from a data array.
-    pub fn new(data: &'a[u8]) -> ReceiveBuffer<'a> {
-        ReceiveBuffer {
-            buffer: data,
-        }
+    pub fn new(data: &'a [u8]) -> ReceiveBuffer<'a> {
+        ReceiveBuffer { buffer: data }
     }
 
     /// Attempts to read an array of bytes from the buffer.
@@ -114,16 +113,17 @@ impl <'a> ReceiveBuffer<'a> {
         let mut cursor = Cursor::new(self.buffer);
         cursor.set_position(u64::from(pos));
         let mut buf: [u8; N] = [0; N];
-        cursor.read_exact(&mut buf).map(|_| buf).map_err(|err| {
-            match err.kind() {
-                io::ErrorKind::UnexpectedEof => BufferError::ReadOutOfBounds{
+        cursor
+            .read_exact(&mut buf)
+            .map(|_| buf)
+            .map_err(|err| match err.kind() {
+                io::ErrorKind::UnexpectedEof => BufferError::ReadOutOfBounds {
                     read_position: pos,
                     read_length: N,
                     buffer_length: self.buffer.len(),
                 },
-                _ => BufferError::Unknown
-            }
-        })
+                _ => BufferError::Unknown,
+            })
     }
 
     /// Attempts to read a vector of bytes from the buffer.
@@ -147,11 +147,11 @@ impl <'a> ReceiveBuffer<'a> {
     pub fn read_vec(&mut self, pos: u32, len: usize) -> Result<Vec<u8>> {
         // We must not read from outside of the buffer.
         if pos >= self.buffer.len() as u32 {
-            return Err(BufferError::ReadOutOfBounds{
+            return Err(BufferError::ReadOutOfBounds {
                 read_position: pos,
                 read_length: len,
                 buffer_length: self.buffer.len(),
-            })
+            });
         }
         let mut len = len;
         if pos as usize + len > self.buffer.len() {
@@ -161,16 +161,17 @@ impl <'a> ReceiveBuffer<'a> {
         let mut cursor = Cursor::new(self.buffer);
         cursor.set_position(u64::from(pos));
         let mut buf: Vec<u8> = vec![0; len];
-        cursor.read_exact(&mut buf).map(|_| buf).map_err(|err| {
-            match err.kind() {
-                io::ErrorKind::UnexpectedEof => BufferError::ReadOutOfBounds{
+        cursor
+            .read_exact(&mut buf)
+            .map(|_| buf)
+            .map_err(|err| match err.kind() {
+                io::ErrorKind::UnexpectedEof => BufferError::ReadOutOfBounds {
                     read_position: pos,
                     read_length: len,
                     buffer_length: self.buffer.len(),
                 },
-                _ => BufferError::Unknown
-            }
-        })
+                _ => BufferError::Unknown,
+            })
     }
 
     /// Attempts to read from a buffer into a string.
@@ -197,11 +198,11 @@ impl <'a> ReceiveBuffer<'a> {
     pub fn read_null_terminated(&mut self, pos: u32, max_len: usize) -> Result<String> {
         // We must not read from outside of the buffer.
         if pos >= self.buffer.len() as u32 {
-            return Err(BufferError::ReadOutOfBounds{
+            return Err(BufferError::ReadOutOfBounds {
                 read_position: pos,
                 read_length: max_len,
                 buffer_length: self.buffer.len(),
-            })
+            });
         }
         let mut cursor = Cursor::new(self.buffer);
         cursor.set_position(u64::from(pos));
@@ -211,19 +212,18 @@ impl <'a> ReceiveBuffer<'a> {
             Ok(bytes_read) => {
                 if bytes_read > max_len {
                     buf.resize(max_len, 0);
-
                 } else if *buf.last().unwrap_or(&0xff) == 0 {
-                    buf.resize(buf.len()-1, 0)
+                    buf.resize(buf.len() - 1, 0)
                 }
                 match from_utf8(&buf) {
                     Ok(s) => Ok(s.to_owned()),
                     Err(_) => Err(BufferError::ReadUtf8Conversion {
                         read_position: pos,
-                        read_length: max_len
+                        read_length: max_len,
                     }),
                 }
             }
-            Err(_) => Err(BufferError::Unknown)
+            Err(_) => Err(BufferError::Unknown),
         }
     }
 
@@ -280,7 +280,8 @@ impl <'a> ReceiveBuffer<'a> {
     /// It reads 4 bytes and converts them to an IPv4 address. If the specified
     /// position is out of bounds the [BufferError::ReadOutOfBounds] is returned.
     pub fn read_ipv4(&mut self, pos: u32) -> Result<Ipv4Addr> {
-        self.read::<4>(pos).map(|buf| Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3]))
+        self.read::<4>(pos)
+            .map(|buf| Ipv4Addr::new(buf[0], buf[1], buf[2], buf[3]))
     }
 }
 
@@ -329,9 +330,11 @@ mod tests {
 
         let read = buf.read::<1>(0);
         assert!(read.is_err());
-        assert_eq!(read.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 0, read length: 1, buffer length: 0");
+        assert_eq!(
+            read.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 0, read length: 1, buffer length: 0"
+        );
     }
-
 
     #[test]
     fn receive_buffer_read_vec() {
@@ -344,7 +347,10 @@ mod tests {
 
         let read = buf.read::<3>(8);
         assert!(read.is_err());
-        assert_eq!(read.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 8, read length: 3, buffer length: 10")
+        assert_eq!(
+            read.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 8, read length: 3, buffer length: 10"
+        )
     }
 
     #[test]
@@ -357,7 +363,6 @@ mod tests {
         assert_eq!(read.unwrap(), data[8..10])
     }
 
-
     #[test]
     fn receive_buffer_read_vec_out_of_bounds() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
@@ -365,7 +370,10 @@ mod tests {
 
         let read = buf.read_vec(15, 4);
         assert!(read.is_err());
-        assert_eq!(read.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 15, read length: 4, buffer length: 10")
+        assert_eq!(
+            read.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 15, read length: 4, buffer length: 10"
+        )
     }
 
     #[test]
@@ -380,7 +388,7 @@ mod tests {
 
     #[test]
     fn receive_buffer_read_null_terminated_without_null() {
-        let data: [u8; 10] = [0x65, 0x65, 0x68, 0x70, 0x71, 0x73, 0x62, 0x65,0x63, 0x64];
+        let data: [u8; 10] = [0x65, 0x65, 0x68, 0x70, 0x71, 0x73, 0x62, 0x65, 0x63, 0x64];
         let mut buf = ReceiveBuffer::new(&data);
 
         let s = buf.read_null_terminated(1, 20);
@@ -396,7 +404,10 @@ mod tests {
 
         let read = buf.read_null_terminated(0, 5);
         assert!(read.is_err());
-        assert_eq!(read.unwrap_err().to_string(), "error converting packet data into a utf8 string at position: 0, read length: 5")
+        assert_eq!(
+            read.unwrap_err().to_string(),
+            "error converting packet data into a utf8 string at position: 0, read length: 5"
+        )
     }
 
     #[test]
@@ -410,7 +421,10 @@ mod tests {
 
         let value = buf.read_u8(10);
         assert!(value.is_err());
-        assert_eq!(value.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 10, read length: 1, buffer length: 10");
+        assert_eq!(
+            value.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 10, read length: 1, buffer length: 10"
+        );
     }
 
     #[test]
@@ -424,7 +438,10 @@ mod tests {
 
         let value = buf.read_u16(14);
         assert!(value.is_err());
-        assert_eq!(value.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 14, read length: 2, buffer length: 10");
+        assert_eq!(
+            value.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 14, read length: 2, buffer length: 10"
+        );
     }
 
     #[test]
@@ -438,7 +455,9 @@ mod tests {
 
         let value = buf.read_u32(20);
         assert!(value.is_err());
-        assert_eq!(value.unwrap_err().to_string(), "out of bounds buffer read attempt at position: 20, read length: 4, buffer length: 10");
+        assert_eq!(
+            value.unwrap_err().to_string(),
+            "out of bounds buffer read attempt at position: 20, read length: 4, buffer length: 10"
+        );
     }
-
 }
