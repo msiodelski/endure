@@ -93,7 +93,7 @@ impl Dispatcher {
     /// The [Filter] applies filtering rules for packets capturing. For example,
     /// it can be used to filter only BOOTP packets, only UDP packets, select
     /// port number etc.
-    pub fn add_listener(&mut self, interface_name: &str, filter: Filter) -> Result<(), Error> {
+    pub fn add_listener(&mut self, interface_name: &str, filter: &Filter) -> Result<(), Error> {
         if self.listeners.contains_key(interface_name) {
             return Err(Error::AddListenerExists);
         }
@@ -168,12 +168,12 @@ mod tests {
     fn add_listener() {
         let mut dispatcher = Dispatcher::new();
         let filter = Filter::new().udp();
-        assert_eq!(dispatcher.add_listener("lo", filter), Ok(()));
+        assert_eq!(dispatcher.add_listener("lo", &filter), Ok(()));
         assert_eq!(
-            dispatcher.add_listener("lo", Filter::new()),
+            dispatcher.add_listener("lo", &Filter::new()),
             Err(AddListenerExists)
         );
-        assert_eq!(dispatcher.add_listener("lo0", Filter::new()), Ok(()));
+        assert_eq!(dispatcher.add_listener("lo0", &Filter::new()), Ok(()));
         assert_eq!(dispatcher.listeners.len(), 2);
         assert!(dispatcher.listeners.contains_key("lo"));
         assert!(dispatcher.listeners.contains_key("lo0"));
