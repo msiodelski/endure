@@ -32,8 +32,6 @@ pub struct Cli {
 /// An enum that defines the supported subcommands.
 #[derive(Subcommand)]
 enum Commands {
-    /// Represents the `collect` command.
-    ///
     /// This command runs a traffic capture and analysis on the specified
     /// network interface.
     Collect {
