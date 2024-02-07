@@ -60,7 +60,7 @@ trait State {
     ///
     /// A filter is only applied when the listener is in the [Inactive]
     /// state.
-    fn filter(self: Box<Self>, packet_filter: Filter) -> Box<dyn State>;
+    fn filter(self: Box<Self>, packet_filter: &Filter) -> Box<dyn State>;
 
     /// Starts the listener thread if not started yet.
     ///
@@ -88,7 +88,7 @@ struct Inactive {
 struct Active {}
 
 /// An enum of protocols used for filtering.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Proto {
     /// Filtering by BOOTP or DHCPv4 messages.
     Bootp,
@@ -107,7 +107,7 @@ pub enum Proto {
 /// ```rust
 /// let filter = Filter::new().udp().port(10067);
 /// ```
-#[derive(Debug)]
+#[derive(Copy, Debug)]
 pub struct Filter {
     proto: Option<Proto>,
     port: Option<u16>,
@@ -135,7 +135,7 @@ impl Listener {
     ///
     /// - `packet_filter` - a packet filter instance used for capturing
     ///   a specific type of the packets.
-    pub fn filter(&mut self, packet_filter: Filter) {
+    pub fn filter(&mut self, packet_filter: &Filter) {
         if let Some(s) = self.state.take() {
             self.state = Some(s.filter(packet_filter))
         }
@@ -161,10 +161,10 @@ impl Listener {
 }
 
 impl State for Inactive {
-    fn filter(self: Box<Self>, packet_filter: Filter) -> Box<dyn State> {
+    fn filter(self: Box<Self>, packet_filter: &Filter) -> Box<dyn State> {
         Box::new(Inactive {
             interface_name: self.interface_name.to_string(),
-            filter: Some(packet_filter),
+            filter: Some(packet_filter.clone()),
         })
     }
 
@@ -201,7 +201,7 @@ impl State for Inactive {
 }
 
 impl State for Active {
-    fn filter(self: Box<Self>, _packet_filter: Filter) -> Box<dyn State> {
+    fn filter(self: Box<Self>, _packet_filter: &Filter) -> Box<dyn State> {
         self
     }
 
