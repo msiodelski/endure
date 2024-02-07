@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+* Selecting multiple interfaces for capturing the traffic from
+  the command line with the `--interface-name` switch.
+  (Github #13, #17).
+
 * Implemented basic BOOTP packets analyzer with two auditors.
   The first auditor tracks the number of BootRequest, BootReply
   and invalid opcodes. The second auditor checks the percentage
