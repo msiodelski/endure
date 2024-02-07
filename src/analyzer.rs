@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 
 use simple_moving_average::*;
 
+/// A default length of the Ethernet frame, IP and UDP headers together.
+const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
+
 /// A structure receiving a current report from the DHCPv4 auditors.
 ///
 /// The [`Analyzer::current_dhcpv4_report`] function takes this structure
@@ -142,8 +145,11 @@ impl Analyzer {
         match packet.filter {
             Some(filter) => match filter.get_proto() {
                 Some(listener::Proto::Bootp) => {
-                    if packet.data.len() > 42 {
-                        let packet = v4::ReceivedPacket::new(&packet.data[42..]);
+                    // We are assuming that it is an Ethernet frame, which is fine for
+                    // most cases. In this case the DHCP payload starts at the offset
+                    // of 42 which is a sum of the Ethernet, IP and UDP headers.
+                    if packet.data.len() > ETHERNET_IP_UDP_HEADER_LENGTH {
+                        let packet = v4::ReceivedPacket::new(&packet.data[ETHERNET_IP_UDP_HEADER_LENGTH..]);
                         self.audit_dhcpv4(&packet);
                     }
                 }
