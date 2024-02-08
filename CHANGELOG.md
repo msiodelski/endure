@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+* The metrics are reported with a single digit precision.
+  (Github #14, #18).
+
 * Selecting multiple interfaces for capturing the traffic from
   the command line with the `--interface-name` switch.
   (Github #13, #17).
