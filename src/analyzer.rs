@@ -13,6 +13,116 @@ use simple_moving_average::*;
 /// A default length of the Ethernet frame, IP and UDP headers together.
 const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
 
+/// Simple moving average for calculating percentages of several related metrics.
+///
+/// There are some groups of metrics that have to be tracked together, each being
+/// a portion of 100%. For example, an auditor calculating BootRequest, BootReply
+/// and invalid messages tracks the percentages of these three message types in
+/// all analyzed massages. That's exactly the use case for the [`PercentSMA`].
+///
+/// # Generic Parameters
+///
+/// - `METRICS_NUM` - specifies the number of tracked metrics. In the case
+///    described above, it will be `3`.
+/// - `WINDOW_SIZE` - specifies the size of the moving average window.
+///
+/// # Precision
+///
+/// The average percentages are returned as floating point number with one
+/// decimal digit. The implementation is using `u64` internally.
+#[derive(Clone, Copy)]
+struct PercentSMA<const METRICS_NUM: usize, const WINDOW_SIZE: usize> {
+    averages: [NoSumSMA<u64, u64, WINDOW_SIZE>; METRICS_NUM],
+}
+
+impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM, WINDOW_SIZE> {
+    /// Instantiates the [`PercentSMA`].
+    fn new() -> PercentSMA<METRICS_NUM, WINDOW_SIZE> {
+        PercentSMA {
+            averages: [(); METRICS_NUM].map(|_| NoSumSMA::new()),
+        }
+    }
+
+    /// Increases a selected metric by `1`.
+    ///
+    /// # Parameters
+    ///
+    /// - metric_index - an index of a metric to increase.
+    ///
+    /// # Usage Example
+    ///
+    /// Call this function when one of the metrics needs to be increased by
+    /// one. For example, when a `BootRequest` message arrives, call this
+    /// function to increase the number of received `BootRequest` messages.
+    /// Internally, the function also adds the `0` sample to the remaining metrics.
+    /// This effectively reduces the quota of the remaining metrics and increases
+    /// the quota of the selected metric.
+    fn increase(&mut self, metric_index: usize) {
+        for i in 0..METRICS_NUM {
+            if i == metric_index {
+                // Add a sample of `1` to a selected metric.
+                self.averages[i].add_sample(1000);
+            } else {
+                // Add a sample of `0` of the remaining mretrics.
+                self.averages[i].add_sample(0);
+            }
+        }
+    }
+
+    /// Return the moving average of the selected metric.
+    ///
+    /// # Parameters
+    ///
+    /// - metric_index - an index of the metric to return.
+    ///
+    /// # Returned Value
+    ///
+    /// The returned value is a percentage of all samples added to the specified
+    /// metric. The sum of the averages returned by this function for all metrics
+    /// is roughly equal to 100%. The returned value has a single decimal precision.
+    fn average(self, metric_index: usize) -> f64 {
+        self.averages[metric_index].get_average() as f64 / 10f64
+    }
+}
+
+/// A moving average implementation with an arbitrary precision.
+///
+/// It is a wrapper around the [`NoSumSMA`] returning an average as a floating
+/// point number with an arbitrary precision.
+///
+/// # Generic Parameters
+///
+/// - PRECISION - selected precision (i.e., 10 for single decimal, 100 for two decimals
+///   1000 for three, etc.)
+/// - `WINDOW_SIZE` - specifies the size of the moving average window.
+#[derive(Clone, Copy)]
+struct RoundedSMA<const PRECISION: usize, const WINDOW_SIZE: usize> {
+    sma: NoSumSMA<u64, u64, WINDOW_SIZE>,
+}
+
+impl<const PRECISION: usize, const WINDOW_SIZE: usize> RoundedSMA<PRECISION, WINDOW_SIZE> {
+    /// Instantiates the [`RoundedSMA`].
+    fn new() -> RoundedSMA<PRECISION, WINDOW_SIZE> {
+        RoundedSMA {
+            sma: NoSumSMA::new(),
+        }
+    }
+
+    /// Adds a sample.
+    ///
+    /// # Parameters
+    ///
+    /// - sample - a sample value.
+    fn add_sample(&mut self, sample: u64) {
+        self.sma.add_sample(PRECISION as u64 * sample);
+    }
+
+    /// Returns an average with a selected precision.
+    fn average(self) -> f64 {
+        self.sma.get_average() as f64 / PRECISION as f64
+    }
+}
+
 /// A structure receiving a current report from the DHCPv4 auditors.
 ///
 /// The [`Analyzer::current_dhcpv4_report`] function takes this structure
@@ -62,7 +172,7 @@ impl DHCPv4Report {
     /// It sets default values to all metrics. It also sets the current
     /// time for the [`DHCPv4Report::time`] field.
     fn new() -> DHCPv4Report {
-        DHCPv4Report{
+        DHCPv4Report {
             time: Local::now(),
             opcode_boot_requests_percent: 0.0,
             opcode_boot_replies_percent: 0.0,
@@ -149,7 +259,8 @@ impl Analyzer {
                     // most cases. In this case the DHCP payload starts at the offset
                     // of 42 which is a sum of the Ethernet, IP and UDP headers.
                     if packet.data.len() > ETHERNET_IP_UDP_HEADER_LENGTH {
-                        let packet = v4::ReceivedPacket::new(&packet.data[ETHERNET_IP_UDP_HEADER_LENGTH..]);
+                        let packet =
+                            v4::ReceivedPacket::new(&packet.data[ETHERNET_IP_UDP_HEADER_LENGTH..]);
                         self.audit_dhcpv4(&packet);
                     }
                 }
@@ -205,18 +316,14 @@ impl Analyzer {
 /// The auditor also returns an average number of invalid messages
 /// (i.e., neither `BootRequest` nor `BootReply`).
 pub struct OpCodeAuditor {
-    boot_requests: NoSumSMA<f64, f64, 100>,
-    boot_replies: NoSumSMA<f64, f64, 100>,
-    invalid: NoSumSMA<f64, f64, 100>,
+    opcodes: PercentSMA<3, 100>,
 }
 
 impl OpCodeAuditor {
     /// Instantiates the [`OpCodeAuditor`].
     pub fn new() -> Box<dyn DHCPv4PacketAuditor> {
         Box::new(OpCodeAuditor {
-            boot_requests: NoSumSMA::new(),
-            boot_replies: NoSumSMA::new(),
-            invalid: NoSumSMA::new(),
+            opcodes: PercentSMA::new(),
         })
     }
 }
@@ -226,19 +333,13 @@ impl DHCPv4PacketAuditor for OpCodeAuditor {
         match packet.opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
-                    self.boot_requests.add_sample(1.0);
-                    self.boot_replies.add_sample(0.0);
-                    self.invalid.add_sample(0.0)
+                    self.opcodes.increase(0usize);
                 }
                 OpCode::BootReply => {
-                    self.boot_requests.add_sample(0.0);
-                    self.boot_replies.add_sample(1.0);
-                    self.invalid.add_sample(0.0)
+                    self.opcodes.increase(1usize);
                 }
                 OpCode::Invalid(_) => {
-                    self.boot_requests.add_sample(0.0);
-                    self.boot_replies.add_sample(0.0);
-                    self.invalid.add_sample(1.0)
+                    self.opcodes.increase(2usize);
                 }
             },
             Err(_) => {}
@@ -246,9 +347,9 @@ impl DHCPv4PacketAuditor for OpCodeAuditor {
     }
 
     fn receive_report(&mut self, report: &mut DHCPv4Report) {
-        report.opcode_boot_requests_percent = 100.0 * self.boot_requests.get_average();
-        report.opcode_boot_replies_percent = 100.0 * self.boot_replies.get_average();
-        report.opcode_invalid_percent = 100.0 * self.invalid.get_average();
+        report.opcode_boot_requests_percent = self.opcodes.average(0);
+        report.opcode_boot_replies_percent = self.opcodes.average(1);
+        report.opcode_invalid_percent = self.opcodes.average(2);
     }
 }
 
@@ -265,16 +366,16 @@ impl DHCPv4PacketAuditor for OpCodeAuditor {
 /// a high average number of retransmissions indicate that the server has
 /// hard time to keep up with the traffic.
 pub struct RetransmissionAuditor {
-    retransmits: NoSumSMA<f64, f64, 100>,
-    secs: NoSumSMA<f64, f64, 100>,
+    retransmits: RoundedSMA<10, 100>,
+    secs: RoundedSMA<10, 100>,
 }
 
 impl RetransmissionAuditor {
     /// Instantiates the [`RetransmissionAuditor`].
     pub fn new() -> Box<dyn DHCPv4PacketAuditor> {
         Box::new(RetransmissionAuditor {
-            retransmits: NoSumSMA::new(),
-            secs: NoSumSMA::new(),
+            retransmits: RoundedSMA::new(),
+            secs: RoundedSMA::new(),
         })
     }
 }
@@ -288,26 +389,75 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
         match packet.secs() {
             Ok(secs) => {
                 if secs > 0 {
-                    self.retransmits.add_sample(1.0);
+                    // Since we want the percentage rather than the average between 0 and 1,
+                    // let's add 100 (instead of 1), so we get appropriate precision and we
+                    // don't have to multiply the resulting average by 100 later on.
+                    self.retransmits.add_sample(100u64);
                 } else {
-                    self.retransmits.add_sample(0.0);
+                    self.retransmits.add_sample(0u64);
                 }
-                self.secs.add_sample(secs as f64);
+                self.secs.add_sample(secs as u64);
             }
             Err(_) => {}
         };
     }
 
     fn receive_report(&mut self, report: &mut DHCPv4Report) {
-        report.retransmit_percent = 100.0 * self.retransmits.get_average();
-        report.retransmit_secs_avg = self.secs.get_average();
+        report.retransmit_percent = self.retransmits.average();
+        report.retransmit_secs_avg = self.secs.average();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{analyzer::RetransmissionAuditor, proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket}};
-    use super::{Analyzer, DHCPv4Report, OpCodeAuditor};
+    use super::{Analyzer, DHCPv4Report, OpCodeAuditor, RoundedSMA};
+    use crate::{
+        analyzer::RetransmissionAuditor,
+        proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
+    };
+
+    #[test]
+    fn rounded_average_prec10() {
+        let mut avg = RoundedSMA::<10, 100>::new();
+        avg.add_sample(1);
+        assert_eq!(1.0, avg.average());
+        avg.add_sample(1);
+        assert_eq!(1.0, avg.average());
+        avg.add_sample(2);
+        assert_eq!(1.3, avg.average());
+        avg.add_sample(8);
+        assert_eq!(3.0, avg.average());
+    }
+
+    #[test]
+    fn rounded_average_prec100() {
+        let mut avg = RoundedSMA::<100, 100>::new();
+        avg.add_sample(1);
+        assert_eq!(1.0, avg.average());
+        avg.add_sample(0);
+        assert_eq!(0.5, avg.average());
+        avg.add_sample(1);
+        assert_eq!(0.66, avg.average());
+        avg.add_sample(8);
+        assert_eq!(2.5, avg.average());
+    }
+
+    #[test]
+    fn rounded_average_window_size() {
+        let mut avg = RoundedSMA::<10, 2>::new();
+        avg.add_sample(1);
+        assert_eq!(1.0, avg.average());
+        avg.add_sample(0);
+        assert_eq!(0.5, avg.average());
+        avg.add_sample(1);
+        assert_eq!(0.5, avg.average());
+        avg.add_sample(1);
+        assert_eq!(1.0, avg.average());
+        avg.add_sample(0);
+        assert_eq!(0.5, avg.average());
+        avg.add_sample(0);
+        assert_eq!(0.0, avg.average());
+    }
 
     #[test]
     fn dhcpv4_analysis() {
@@ -333,8 +483,7 @@ mod tests {
     fn opcode_audit() {
         let mut auditor = OpCodeAuditor::new();
         let test_packet = TestBootpPacket::new();
-        let test_packet = test_packet
-            .set(OPCODE_POS, &vec![1]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
         let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.
         for _ in 0..5 {
@@ -348,8 +497,7 @@ mod tests {
 
         // Audit 3 reply packets. Now we have 8 packets audited (62.5% are requests and 37.5%
         // are replies).
-        let test_packet = test_packet
-            .set(OPCODE_POS, &vec![2]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
         let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
         for _ in 0..3 {
             auditor.audit(packet);
@@ -361,8 +509,7 @@ mod tests {
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (50% of requests, 30% of replies and 20% invalid).
-        let test_packet = test_packet
-        .set(OPCODE_POS, &vec![3]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
         let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
         for _ in 0..2 {
             auditor.audit(packet);
@@ -403,5 +550,4 @@ mod tests {
         assert_eq!(60.0, report.retransmit_percent);
         assert_eq!(1.2, report.retransmit_secs_avg);
     }
-
 }
