@@ -9,8 +9,9 @@
 //! This module should be used for processing the BOOTP messages. The [super::dhcp::v4]
 //! module should be used for parsing the DHCPv4 messages.
 //!
+use std::{fmt::{self, Display}, net::Ipv4Addr};
+
 use super::buffer::{BufferError, ClampedNumber, ReceiveBuffer};
-use std::net::Ipv4Addr;
 
 /// `opcode` position.
 pub const OPCODE_POS: u32 = 0;
@@ -145,6 +146,16 @@ impl HAddr {
     /// Returns the hardware address.
     pub fn data(&self) -> &Vec<u8> {
         &self.data
+    }
+}
+
+impl Display for  HAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut hex: Vec<String> = Vec::new();
+        self.data.iter().for_each(|byte| {
+            hex.push(format!("{:02x}", byte));
+        });
+        write!(f, "{}", hex.join(":"))
     }
 }
 
@@ -410,6 +421,19 @@ mod tests {
 
     use crate::proto::bootp::*;
     use crate::proto::tests::common::TestBootpPacket;
+
+    #[test]
+    fn display_hardware_address() {
+        let haddr = HAddr::new(HType::Ethernet, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!("01:02:03:04:05:06", haddr.to_string())
+    }
+
+    #[test]
+    fn display_empty_hardware_address() {
+        let haddr = HAddr::new(HType::Ethernet, vec![]);
+        assert_eq!("", haddr.to_string())
+    }
+
 
     #[test]
     fn valid_packet() {
