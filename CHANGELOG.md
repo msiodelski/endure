@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+* The longest retransmitting DHCP client is reported in the
+  metrics.
+  (Github #19, #20).
+
 * The metrics are reported with a single digit precision.
   (Github #14, #18).
 
