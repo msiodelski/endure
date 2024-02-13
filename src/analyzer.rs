@@ -13,6 +13,172 @@ use simple_moving_average::*;
 /// A default length of the Ethernet frame, IP and UDP headers together.
 const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
 
+/// A single record held in the [`MovingRanks`] container.
+///
+/// It contains an identifier, score and the age of the given rank.
+///
+/// # Generic Parameters
+///
+/// - `IDENT` - a unique rank identifier. It typically associates the rank
+///   with a client (e.g., MAC address).
+/// - `SCORE` - a score that can be compared with other ranks. It is a metric
+///   associated with  a client (e.g., `secs` field value).
+struct MovingRank<IDENT, SCORE>
+where
+    SCORE: std::cmp::PartialOrd,
+{
+    /// A rank identifier.
+    ///
+    /// Typically a string value, such as client MAC address.
+    id: IDENT,
+
+    /// A metric used for scoring.
+    ///
+    /// Typically a number that can be compared with other numbers (ranks).
+    /// The higher number is scored as a higher rank.
+    score: SCORE,
+
+    /// Score age.
+    ///
+    /// There is a limit in the [`MovingRanks`] how long the ranks are held.
+    /// That's why an age of each rank has to be increased when a new score
+    /// is reported. Newer scores eventually replace the older scores when
+    /// their lifetime expires.
+    age: usize,
+}
+
+impl<IDENT, SCORE> MovingRank<IDENT, SCORE>
+where
+    IDENT: std::cmp::PartialEq,
+    SCORE: std::cmp::PartialOrd,
+{
+    /// Instantiates a new rank with an age of 0.
+    ///
+    /// # Parameters
+    ///
+    /// - `id` - rank identifier.
+    /// - `score` - score to be ranked.
+    fn new(id: IDENT, score: SCORE) -> MovingRank<IDENT, SCORE> {
+        MovingRank { id, score, age: 0 }
+    }
+}
+
+/// Tracks and holds the highest metrics associated with different clients.
+///
+/// # Generic Parameters
+///
+/// - `IDENT` - a unique rank identifier. It typically associates the rank
+///   with a client (e.g., MAC address).
+/// - `SCORE` - a score that can be compared with other ranks. It is a metric
+///   associated with  a client (e.g., `secs` field value).
+/// - `RANKS_NUM` - maximum number of the top ranks.
+/// - `WINDOW_SIZE` - maximum age of the ranks until they expire.
+///
+/// # Usage Example
+///
+/// Suppose you want to track three clients with the longest retransmission
+/// time (i.e., `secs` value). The [`MovingRanks`] can be used as follows:
+///
+/// ```rust
+/// let mut ranks = MovingRanks::<String, u16, 3, 5>::new();
+/// let secs: u16 = 15;
+/// ranks.add_score("00:01:02:03:04:05".to_string(), secs);
+/// if let Some(rank) = ranks.get(0) {
+///     println!("{}", rank.id);
+/// }
+/// ```
+/// The value of `5` in the generic parameters is the maximum age of the score.
+/// Older ranks are removed and not taken into account when scoring. The value
+/// of `3` is the maximum number of tracked ranks. The `u16` is the type of the
+/// scored value. In this case the `secs` field is the two byte unsigned integer.
+/// Finally, the `String` is the identifier type. Here, we represent the client
+/// MAC address as a string.
+struct MovingRanks<IDENT, SCORE, const RANKS_NUM: usize, const WINDOW_SIZE: usize>
+where
+    IDENT: std::cmp::PartialEq,
+    SCORE: std::cmp::PartialOrd,
+{
+    /// Stored ranks.
+    ///
+    /// This vector has a length between 0 and `RANKS_NUM`. The ranks can be
+    /// retrieved using the [`MovingRanks::get_rank`] function.
+    ranks: Vec<MovingRank<IDENT, SCORE>>,
+}
+
+impl<IDENT, SCORE, const RANKS_NUM: usize, const WINDOW_SIZE: usize>
+    MovingRanks<IDENT, SCORE, RANKS_NUM, WINDOW_SIZE>
+where
+    IDENT: std::cmp::PartialEq,
+    SCORE: std::cmp::PartialOrd,
+{
+    /// Instantiates the [`MovingRanks`].
+    ///
+    /// It creates an empty set of ranks.
+    fn new() -> MovingRanks<IDENT, SCORE, RANKS_NUM, WINDOW_SIZE> {
+        MovingRanks { ranks: Vec::new() }
+    }
+
+    /// Compares the score with the existing ranks and optionally puts it in the rank list.
+    ///
+    /// The [`MovingRanks`] keeps a limited number of ranks. If the score specified as
+    /// a parameter is higher than any of the existing ranks the new score is preserved
+    /// and the lowest score is removed. The scores are also removed when their lifetime
+    /// ends (i.e., is greater than the `WINDOW_SIZE`). If the rank for the given identifier
+    /// already exists it is replaced with a new score.
+    ///
+    /// # Parameters
+    ///
+    /// - `id`` - a rank identifier (e.g., a client MAC address).
+    /// - `score` - a value of the metrics (e.g., `secs` field value).
+    fn add_score(&mut self, id: IDENT, score: SCORE) {
+        // Remove expired scores.
+        self.ranks
+            .retain(|rank| rank.age < WINDOW_SIZE && rank.id != id);
+        // Find the index in the vector where our new score belongs.
+        let mut index: Option<usize> = None;
+        for i in 0..self.ranks.len() {
+            // Each sample in the vector gets an updated age.
+            self.ranks[i].age += 1;
+            if index.is_none() && score >= self.ranks[i].score {
+                // The new score belongs at this position.
+                index = Some(i);
+            }
+        }
+        match index {
+            Some(index) => {
+                // Put the new rank between other ranks based on its score.
+                self.ranks.insert(index, MovingRank::new(id, score));
+                // In most cases we now have too many ranks. We need to remove one.
+                if self.ranks.len() > RANKS_NUM {
+                    self.ranks.drain(RANKS_NUM..);
+                }
+            }
+            None => {
+                // All the existing scores seem to be higher. In this case, we only
+                // insert our score if we haven't filled the rank list yet.
+                if self.ranks.len() < RANKS_NUM {
+                    self.ranks.push(MovingRank::new(id, score));
+                }
+            }
+        }
+    }
+
+    /// Returns a specified rank by index.
+    ///
+    /// # Parameters
+    ///
+    /// - index - rank index. The index of `0` is the highest rank.
+    ///
+    /// # Returned Value
+    ///
+    /// If the specified index is greater than the number of ranks this function
+    /// returns `None`. Otherwise, it returns a specified rank where `0` means the
+    /// highest rank.
+    fn get_rank(&self, index: usize) -> Option<&MovingRank<IDENT, SCORE>> {
+        self.ranks.get(index)
+    }
+}
+
 /// Simple moving average for calculating percentages of several related metrics.
 ///
 /// There are some groups of metrics that have to be tracked together, each being
@@ -164,6 +330,10 @@ pub struct DHCPv4Report {
     ///
     /// This metric is maintained by the [`RetransmissionAuditor`].
     retransmit_secs_avg: f64,
+    /// A hardware address of the client with the largest `secs` value.
+    ///
+    /// This metric is maintained by the [`RetransmissionAuditor`].
+    retransmit_longest_trying_client: String,
 }
 
 impl DHCPv4Report {
@@ -179,6 +349,7 @@ impl DHCPv4Report {
             opcode_invalid_percent: 0.0,
             retransmit_percent: 0.0,
             retransmit_secs_avg: 0.0,
+            retransmit_longest_trying_client: String::new(),
         }
     }
 }
@@ -365,9 +536,13 @@ impl DHCPv4PacketAuditor for OpCodeAuditor {
 /// with the DHCP traffic load. A high average value of the `secs` field and
 /// a high average number of retransmissions indicate that the server has
 /// hard time to keep up with the traffic.
+///
+/// The auditor also keeps track of the MAC address of the client who has been
+/// trying to get a lease for a longest period of time in last 1000 packets.
 pub struct RetransmissionAuditor {
     retransmits: RoundedSMA<10, 100>,
     secs: RoundedSMA<10, 100>,
+    longest_trying_client: MovingRanks<String, u16, 1, 100>,
 }
 
 impl RetransmissionAuditor {
@@ -376,6 +551,7 @@ impl RetransmissionAuditor {
         Box::new(RetransmissionAuditor {
             retransmits: RoundedSMA::new(),
             secs: RoundedSMA::new(),
+            longest_trying_client: MovingRanks::new(),
         })
     }
 }
@@ -393,6 +569,14 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
                     // let's add 100 (instead of 1), so we get appropriate precision and we
                     // don't have to multiply the resulting average by 100 later on.
                     self.retransmits.add_sample(100u64);
+                    // Get the client's hardware address.
+                    match packet.chaddr() {
+                        Ok(haddr) => {
+                            self.longest_trying_client
+                                .add_score(haddr.to_string(), secs);
+                        }
+                        Err(_) => {}
+                    }
                 } else {
                     self.retransmits.add_sample(0u64);
                 }
@@ -405,16 +589,81 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
     fn receive_report(&mut self, report: &mut DHCPv4Report) {
         report.retransmit_percent = self.retransmits.average();
         report.retransmit_secs_avg = self.secs.average();
+        if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
+            report.retransmit_longest_trying_client = longest_trying_client.id.clone();
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Analyzer, DHCPv4Report, OpCodeAuditor, RoundedSMA};
+    use super::{Analyzer, DHCPv4Report, MovingRanks, OpCodeAuditor, RoundedSMA};
     use crate::{
         analyzer::RetransmissionAuditor,
         proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
     };
+
+    /// A convenience function testing the returned rank.
+    fn expect_rank(
+        ranks: &MovingRanks<String, u64, 3, 5>,
+        index: usize,
+        id: &str,
+        score: u64,
+        age: usize,
+    ) {
+        let rank = ranks.get_rank(index);
+        assert!(rank.is_some());
+        assert_eq!(id, rank.unwrap().id);
+        assert_eq!(score, rank.unwrap().score);
+        assert_eq!(age, rank.unwrap().age);
+    }
+
+    #[test]
+    fn ranks() {
+        let mut ranks = MovingRanks::<String, u64, 3, 5>::new();
+        assert!(ranks.get_rank(0).is_none());
+
+        ranks.add_score("foo".to_string(), 20);
+        expect_rank(&ranks, 0, "foo", 20, 0);
+        assert!(ranks.get_rank(1).is_none());
+
+        ranks.add_score("bar".to_string(), 40);
+        ranks.add_score("baz".to_string(), 10);
+
+        expect_rank(&ranks, 0, "bar", 40, 1);
+        expect_rank(&ranks, 1, "foo", 20, 2);
+        expect_rank(&ranks, 2, "baz", 10, 0);
+
+        ranks.add_score("bac".to_string(), 5);
+
+        expect_rank(&ranks, 0, "bar", 40, 2);
+        expect_rank(&ranks, 1, "foo", 20, 3);
+        expect_rank(&ranks, 2, "baz", 10, 1);
+
+        ranks.add_score("bar".to_string(), 50);
+
+        expect_rank(&ranks, 0, "bar", 50, 0);
+        expect_rank(&ranks, 1, "foo", 20, 4);
+        expect_rank(&ranks, 2, "baz", 10, 2);
+
+        ranks.add_score("cab".to_string(), 30);
+
+        expect_rank(&ranks, 0, "bar", 50, 1);
+        expect_rank(&ranks, 1, "cab", 30, 0);
+        expect_rank(&ranks, 2, "foo", 20, 5);
+
+        ranks.add_score("aaa".to_string(), 5);
+
+        expect_rank(&ranks, 0, "bar", 50, 2);
+        expect_rank(&ranks, 1, "cab", 30, 1);
+        expect_rank(&ranks, 2, "aaa", 5, 0);
+
+        ranks.add_score("bar".to_string(), 1);
+
+        expect_rank(&ranks, 0, "cab", 30, 2);
+        expect_rank(&ranks, 1, "aaa", 5, 1);
+        expect_rank(&ranks, 2, "bar", 1, 0);
+    }
 
     #[test]
     fn rounded_average_prec10() {
@@ -477,6 +726,7 @@ mod tests {
         assert_eq!(0.0, report.opcode_invalid_percent);
         assert_eq!(90.0, report.retransmit_percent);
         assert_eq!(4.5, report.retransmit_secs_avg);
+        assert_eq!("2d:20:59:2b:0c:16", report.retransmit_longest_trying_client);
     }
 
     #[test]
@@ -535,6 +785,7 @@ mod tests {
         auditor.receive_report(&mut report);
         assert_eq!(0.0, report.retransmit_percent);
         assert_eq!(0.0, report.retransmit_secs_avg);
+        assert_eq!("", report.retransmit_longest_trying_client);
 
         // Audit 4 packets. The first is not a retransmission. The remaining ones
         // have the increasing secs value.
@@ -549,5 +800,6 @@ mod tests {
         auditor.receive_report(&mut report);
         assert_eq!(60.0, report.retransmit_percent);
         assert_eq!(1.2, report.retransmit_secs_avg);
+        assert_eq!("2d:20:59:2b:0c:16", report.retransmit_longest_trying_client);
     }
 }
