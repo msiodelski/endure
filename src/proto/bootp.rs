@@ -9,7 +9,10 @@
 //! This module should be used for processing the BOOTP messages. The [super::dhcp::v4]
 //! module should be used for parsing the DHCPv4 messages.
 //!
-use std::{fmt::{self, Display}, net::Ipv4Addr};
+use std::{
+    fmt::{self, Display},
+    net::Ipv4Addr,
+};
 
 use super::buffer::{BufferError, ClampedNumber, ReceiveBuffer};
 
@@ -149,7 +152,7 @@ impl HAddr {
     }
 }
 
-impl Display for  HAddr {
+impl Display for HAddr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut hex: Vec<String> = Vec::new();
         self.data.iter().for_each(|byte| {
@@ -433,7 +436,6 @@ mod tests {
         let haddr = HAddr::new(HType::Ethernet, vec![]);
         assert_eq!("", haddr.to_string())
     }
-
 
     #[test]
     fn valid_packet() {

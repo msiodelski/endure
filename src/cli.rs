@@ -57,7 +57,9 @@ impl Cli {
         let args = Cli::parse();
         if let Some(commands) = args.commands {
             match commands {
-                Commands::Collect { interface_name: interface_names } => {
+                Commands::Collect {
+                    interface_name: interface_names,
+                } => {
                     Cli::install_signal_handler();
                     let mut dispatcher = dispatcher::Dispatcher::new();
                     let filter = Filter::new().bootp_server_relay();
@@ -65,7 +67,7 @@ impl Cli {
                         dispatcher
                             .add_listener(interface_name.as_str(), &filter)
                             .expect("listener already added");
-                    };
+                    }
                     dispatcher
                         .add_timer(timer::Type::DataScrape, 3000)
                         .expect("timer already added");
