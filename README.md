@@ -1,4 +1,4 @@
-## Endure
+## Endure ![workflow](https://github.com/msiodelski/endure/actions/workflows/rust.yml/badge.svg)
 
 Endure is a DHCP diagnostics utility installed next to a server or relay. It analyzes the inbound and outbound DHCP traffic and collects various diagnostic metrics.
 
@@ -41,9 +41,9 @@ Endure is a new project with limited capabilities. However, it can already colle
 |--------|-------------|
 |`opcode_boot_requests_percent`|A percentage of `BootRequest` packets|
 |`opcode_boot_replies_percent`|A percentage of the `BootReply` packets|
-|`opcode_invalid_percent`|A percentage of neither request nor reply packets.|
+|`opcode_invalid_percent`|A percentage of neither request nor reply packets|
 |`retransmit_percent`|Percent of retransmissions|
-|`retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease.|
+|`retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
 |`retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
 
 The above metrics are calculated as a moving average from the last 100 packets.
