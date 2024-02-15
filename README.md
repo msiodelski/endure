@@ -4,9 +4,9 @@ Endure is a DHCP diagnostics utility installed next to a server or relay. It ana
 
 ### System and Software Requirements
 
-Endure has been tested on Ubuntu 22 and macOS Sonoma 14.1.1. Support for Microsoft Windows is planned. It requires [libpcap](https://www.tcpdump.org) library.
+Endure has been tested on Ubuntu 22 and macOS Sonoma 14.1.1. It requires [libpcap](https://www.tcpdump.org) library.
 
-To compile the program on Ubuntu 22, first install `libpcap-dev` using the following command:
+To compile the program on Ubuntu 22, first install `libpcap-dev`:
 
 ```
 $ apt install libpcap-dev
@@ -14,14 +14,14 @@ $ apt install libpcap-dev
 
 ### Building with Cargo
 
-Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility.
+Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility. The minimal required `rustc` version is 1.74.
 
 ```
 $ cd endure
-$ cargo build
+$ cargo build --release
 ```
 
-The resulting binary can be found in the `endure/target/debug` directory.
+The resulting binary can be found in the `endure/target/release` directory.
 
 ### Running the Utility
 
