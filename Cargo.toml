@@ -1,6 +1,6 @@
 [package]
 name = "endure"
-version = "0.0.0-git"
+version = "0.1.0"
 edition = "2021"
 authors = ["Marcin Siodelski <msiodelski@gmail.com>"]
 description = "DHCP diagnostics utility"
