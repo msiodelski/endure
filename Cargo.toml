@@ -2,6 +2,9 @@
 name = "endure"
 version = "0.0.0-git"
 edition = "2021"
+authors = ["Marcin Siodelski <msiodelski@gmail.com>"]
+description = "DHCP diagnostics utility"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
