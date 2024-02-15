@@ -1,6 +1,6 @@
 # ChangeLog
 
-## [Unreleased]
+## Release v0.1.0 (Feb 16th, 2024)
 
 * The longest retransmitting DHCP client is reported in the
   metrics.
