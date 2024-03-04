@@ -1,11 +1,17 @@
 //! `analyzer` is a module containing the packet analysis and reporting logic.
 
+use std::borrow::BorrowMut;
+use std::sync::atomic::AtomicU64;
+use std::sync::Mutex;
+use std::{fmt::Debug, sync::Arc};
+
 use crate::{
     listener::{self, PacketWrapper},
     proto::{bootp::OpCode, dhcp::v4},
 };
 
 use chrono::{DateTime, Local};
+use prometheus_client::{collector::Collector, encoding::EncodeMetric, metrics::gauge::Gauge};
 use serde::{Deserialize, Serialize};
 
 use simple_moving_average::*;
@@ -23,6 +29,7 @@ const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
 ///   with a client (e.g., MAC address).
 /// - `SCORE` - a score that can be compared with other ranks. It is a metric
 ///   associated with  a client (e.g., `secs` field value).
+#[derive(Debug)]
 struct MovingRank<IDENT, SCORE>
 where
     SCORE: std::cmp::PartialOrd,
@@ -93,6 +100,7 @@ where
 /// scored value. In this case the `secs` field is the two byte unsigned integer.
 /// Finally, the `String` is the identifier type. Here, we represent the client
 /// MAC address as a string.
+#[derive(Debug)]
 struct MovingRanks<IDENT, SCORE, const RANKS_NUM: usize, const WINDOW_SIZE: usize>
 where
     IDENT: std::cmp::PartialEq,
@@ -196,7 +204,7 @@ where
 ///
 /// The average percentages are returned as floating point number with one
 /// decimal digit. The implementation is using `u64` internally.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct PercentSMA<const METRICS_NUM: usize, const WINDOW_SIZE: usize> {
     averages: [NoSumSMA<u64, u64, WINDOW_SIZE>; METRICS_NUM],
 }
@@ -261,7 +269,7 @@ impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM,
 /// - PRECISION - selected precision (i.e., 10 for single decimal, 100 for two decimals
 ///   1000 for three, etc.)
 /// - `WINDOW_SIZE` - specifies the size of the moving average window.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct RoundedSMA<const PRECISION: usize, const WINDOW_SIZE: usize> {
     sma: NoSumSMA<u64, u64, WINDOW_SIZE>,
 }
@@ -299,7 +307,7 @@ impl<const PRECISION: usize, const WINDOW_SIZE: usize> RoundedSMA<PRECISION, WIN
 /// when they are implemented.
 ///
 /// The report is serialized to the CSV format.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DHCPv4Report {
     /// Report generation time.
     ///
@@ -361,7 +369,7 @@ impl DHCPv4Report {
 /// checks on the packet and updates its local state and maintained
 /// metrics. The [`Analyzer`] can call [`DHCPv4PacketAuditor::receive_report`]
 /// to gather the metrics from the auditor periodically.
-pub trait DHCPv4PacketAuditor {
+pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
     /// Runs an audit on the received packet.
     ///
     /// The audit is specific to the given auditor implementing this
@@ -395,23 +403,32 @@ pub trait DHCPv4PacketAuditor {
 ///
 /// It recognizes received packet types and selects appropriate auditors
 /// to perform the analysis.
+#[derive(Clone, Debug)]
 pub struct Analyzer {
     /// DHCPv4 auditors.
-    dhcpv4_auditors: Vec<Box<dyn DHCPv4PacketAuditor>>,
+    dhcpv4_auditors: Arc<Mutex<Vec<Box<dyn DHCPv4PacketAuditor>>>>,
+    last_report: Arc<Mutex<DHCPv4Report>>,
 }
 
 impl Analyzer {
     /// Instantiates the [`Analyzer`].
     pub fn new() -> Self {
         Analyzer {
-            dhcpv4_auditors: Vec::new(),
+            dhcpv4_auditors: Arc::new(Mutex::new(Vec::new())),
+            last_report: Arc::new(Mutex::new(DHCPv4Report::new())),
         }
     }
 
     /// Installs all default auditors.
     pub fn add_default_auditors(&mut self) {
-        self.dhcpv4_auditors.push(RetransmissionAuditor::new());
-        self.dhcpv4_auditors.push(OpCodeAuditor::new());
+        self.dhcpv4_auditors
+            .lock()
+            .unwrap()
+            .push(RetransmissionAuditor::new());
+        self.dhcpv4_auditors
+            .lock()
+            .unwrap()
+            .push(OpCodeAuditor::new());
     }
 
     /// Runs analysis of the received packet.
@@ -448,8 +465,9 @@ impl Analyzer {
     /// - `packet` - a received unparsed DHCPv4 packet
     fn audit_dhcpv4<'a>(&mut self, packet: &v4::RawPacket<'a>) {
         let mut packet = packet.into_parsable();
-        for auditor in self.dhcpv4_auditors.iter_mut() {
-            auditor.audit(&mut packet)
+        for auditor in self.dhcpv4_auditors.lock().unwrap().iter_mut() {
+            auditor.audit(&mut packet);
+            auditor.receive_report(self.last_report.lock().unwrap().borrow_mut());
         }
     }
 
@@ -461,12 +479,71 @@ impl Analyzer {
     /// available to an external reader (e.g., to append the report as a
     /// row of a CSV file or to a Prometheus exporter).
     pub fn current_dhcpv4_report(&mut self) -> DHCPv4Report {
-        let mut report = DHCPv4Report::new();
-        // Go over the active auditors and gather their metrics.
-        for auditor in self.dhcpv4_auditors.iter_mut() {
-            auditor.receive_report(&mut report);
-        }
-        report
+        self.last_report.lock().unwrap().clone()
+    }
+}
+
+impl Collector for Analyzer {
+    fn encode(
+        &self,
+        mut encoder: prometheus_client::encoding::DescriptorEncoder,
+    ) -> Result<(), std::fmt::Error> {
+        let gauge = Gauge::<f64, AtomicU64>::default();
+        gauge.set(
+            self.last_report
+                .lock()
+                .unwrap()
+                .opcode_boot_requests_percent,
+        );
+        let metric_encoder = encoder.encode_descriptor(
+            "opcode_boot_requests_percent",
+            "Percentage of the BootRequest messages.",
+            None,
+            gauge.metric_type(),
+        )?;
+        gauge.encode(metric_encoder)?;
+
+        let gauge = Gauge::<f64, AtomicU64>::default();
+        gauge.set(self.last_report.lock().unwrap().opcode_boot_replies_percent);
+        let metric_encoder = encoder.encode_descriptor(
+            "opcode_boot_replies_percent",
+            "Percentage of the BootReply messages.",
+            None,
+            gauge.metric_type(),
+        )?;
+        gauge.encode(metric_encoder)?;
+
+        let gauge = Gauge::<f64, AtomicU64>::default();
+        gauge.set(self.last_report.lock().unwrap().opcode_invalid_percent);
+        let metric_encoder = encoder.encode_descriptor(
+            "opcode_invalid_percent",
+            "Percentage of the invalid messages.",
+            None,
+            gauge.metric_type(),
+        )?;
+        gauge.encode(metric_encoder)?;
+
+        let gauge = Gauge::<f64, AtomicU64>::default();
+        gauge.set(self.last_report.lock().unwrap().retransmit_percent);
+        let metric_encoder = encoder.encode_descriptor(
+            "retransmit_percent",
+            "Percentage of the retransmissions in the mssages sent by clients.",
+            None,
+            gauge.metric_type(),
+        )?;
+        gauge.encode(metric_encoder)?;
+
+        let gauge = Gauge::<f64, AtomicU64>::default();
+        gauge.set(self.last_report.lock().unwrap().retransmit_secs_avg);
+        let metric_encoder = encoder.encode_descriptor(
+            "retransmit_secs_avg",
+            "Average retransmission time (i.e. average time in retransmissions to acquire a new lease).",
+            None,
+            gauge.metric_type(),
+        )?;
+        gauge.encode(metric_encoder)?;
+
+        Ok(())
     }
 }
 
@@ -486,6 +563,7 @@ impl Analyzer {
 ///
 /// The auditor also returns an average number of invalid messages
 /// (i.e., neither `BootRequest` nor `BootReply`).
+#[derive(Clone, Copy, Debug)]
 pub struct OpCodeAuditor {
     opcodes: PercentSMA<3, 100>,
 }
@@ -539,6 +617,7 @@ impl DHCPv4PacketAuditor for OpCodeAuditor {
 ///
 /// The auditor also keeps track of the MAC address of the client who has been
 /// trying to get a lease for a longest period of time in last 1000 packets.
+#[derive(Debug)]
 pub struct RetransmissionAuditor {
     retransmits: RoundedSMA<10, 100>,
     secs: RoundedSMA<10, 100>,
@@ -597,6 +676,8 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
 
 #[cfg(test)]
 mod tests {
+    use prometheus_client::{encoding::text::encode, registry::Registry};
+
     use super::{Analyzer, DHCPv4Report, MovingRanks, OpCodeAuditor, RoundedSMA};
     use crate::{
         analyzer::RetransmissionAuditor,
@@ -734,7 +815,7 @@ mod tests {
         let mut auditor = OpCodeAuditor::new();
         let test_packet = TestBootpPacket::new();
         let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
-        let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.
         for _ in 0..5 {
             auditor.audit(packet);
@@ -748,7 +829,7 @@ mod tests {
         // Audit 3 reply packets. Now we have 8 packets audited (62.5% are requests and 37.5%
         // are replies).
         let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
-        let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
         for _ in 0..3 {
             auditor.audit(packet);
         }
@@ -760,7 +841,7 @@ mod tests {
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (50% of requests, 30% of replies and 20% invalid).
         let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
-        let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
         for _ in 0..2 {
             auditor.audit(packet);
         }
@@ -777,7 +858,7 @@ mod tests {
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
             .set(SECS_POS, &vec![0, 0]);
-        let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
 
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
         auditor.audit(packet);
@@ -801,5 +882,43 @@ mod tests {
         assert_eq!(60.0, report.retransmit_percent);
         assert_eq!(1.2, report.retransmit_secs_avg);
         assert_eq!("2d:20:59:2b:0c:16", report.retransmit_longest_trying_client);
+    }
+
+    #[test]
+    fn prometheus_encode() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let mut registry = Registry::default();
+        registry.register_collector(Box::new(analyzer.clone()));
+        for i in 0..10 {
+            let test_packet = TestBootpPacket::new();
+            let test_packet = test_packet
+                .set(OPCODE_POS, &vec![1])
+                .set(SECS_POS, &vec![0, i]);
+            let packet = ReceivedPacket::new(&test_packet.get());
+            analyzer.audit_dhcpv4(&packet);
+        }
+        let mut buffer = String::new();
+        encode(&mut buffer, &registry).unwrap();
+        assert!(buffer.contains(
+            "# HELP opcode_boot_requests_percent Percentage of the BootRequest messages."
+        ));
+        assert!(buffer.contains("# TYPE opcode_boot_requests_percent gauge"));
+        assert!(buffer.contains("opcode_boot_requests_percent 100.0"));
+        assert!(buffer
+            .contains("# HELP opcode_boot_replies_percent Percentage of the BootReply messages."));
+        assert!(buffer.contains("# TYPE opcode_boot_replies_percent gauge"));
+        assert!(buffer.contains("opcode_boot_replies_percent 0.0"));
+        assert!(
+            buffer.contains("# HELP opcode_invalid_percent Percentage of the invalid messages.")
+        );
+        assert!(buffer.contains("# TYPE opcode_invalid_percent gauge"));
+        assert!(buffer.contains("opcode_invalid_percent 0.0"));
+        assert!(buffer.contains("# HELP retransmit_percent Percentage of the retransmissions in the mssages sent by clients."));
+        assert!(buffer.contains("# TYPE retransmit_percent gauge"));
+        assert!(buffer.contains("retransmit_percent 90.0"));
+        assert!(buffer.contains("# TYPE retransmit_secs_avg gauge"));
+        assert!(buffer.contains("retransmit_secs_avg 4.5"));
+        assert!(buffer.contains("# EOF"));
     }
 }

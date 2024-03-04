@@ -36,6 +36,7 @@ pub struct RawState;
 /// [PartiallyParsedState]. The cached value is returned the next time the same
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
+#[derive(Clone)]
 pub struct PartiallyParsedState<'a> {
     bootp: bootp::ReceivedPacket<'a, bootp::PartiallyParsedState<'a>>,
 }
@@ -52,6 +53,7 @@ pub struct PartiallyParsedState<'a> {
 /// is unparsed and exposes no data parsing functions. The packet must be
 /// explicitly transitioned to the [PartiallyParsedState] before parsing and
 /// accessing the named data fields carried in the packet.
+#[derive(Clone)]
 pub struct ReceivedPacket<'a, State> {
     /// Unparsed packet data.
     data: &'a [u8],
@@ -223,7 +225,7 @@ mod tests {
     #[test]
     fn valid_packet() {
         let test_packet = TestBootpPacket::new();
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
 
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::BootReply));
@@ -253,7 +255,7 @@ mod tests {
     #[test]
     fn convert_into_bootp() {
         let test_packet = TestBootpPacket::new();
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
 
         let mut bootp_packet = packet.as_bootp().into_parsable();
         assert_eq!(bootp_packet.opcode(), Ok(&OpCode::BootReply));
