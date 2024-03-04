@@ -13,6 +13,8 @@
 //! Cli::parse().run();
 //! ```
 
+use std::process::exit;
+
 use crate::{
     dispatcher::{self, CsvOutputType},
     listener::Filter,
@@ -77,23 +79,46 @@ impl Cli {
                     csv_output,
                     report_interval,
                 } => {
+                    // Create the dispatcher to multiplex tasks.
                     let mut dispatcher = dispatcher::Dispatcher::new();
+                    // Only filter the BOOTP and DHCPv4 messages.
                     let filter = Filter::new().bootp_server_relay();
+                    // Bind to the specified interfaces.
                     for interface_name in interface_names.iter() {
-                        dispatcher
-                            .add_listener(interface_name.as_str(), &filter)
-                            .expect("listener already added");
+                        let result = dispatcher.add_listener(interface_name.as_str(), &filter);
+                        if result.is_err() {
+                            eprintln!("specified the same interface multiple names");
+                            exit(128);
+                        }
                     }
+                    // Conditionally enable an export to Prometheus.
                     dispatcher.prometheus_metrics_address = prometheus_metrics_address;
+                    // Conditionally enable periodic CSV reports.
                     dispatcher.csv_output =
                         csv_output.map(|csv_output| match csv_output.as_str() {
                             "stdout" => CsvOutputType::Stdout,
                             _ => CsvOutputType::File(csv_output),
                         });
+                    // Set non-default interval for the periodic report.
                     if let Some(report_interval) = report_interval {
                         dispatcher.report_interval = report_interval;
                     }
-                    block_on(dispatcher.dispatch());
+                    // Run the dispatcher. It may fail starting the HTTP server or a CSV writer.
+                    let result = block_on(dispatcher.dispatch());
+                    match result {
+                        Err(dispatcher::DispatchError::HttpServerError(err)) => {
+                            eprintln!("failed to start an HTTP server: {}", err);
+                            exit(128);
+                        }
+                        Err(dispatcher::DispatchError::CsvWriterError(err)) => {
+                            eprintln!(
+                                "failed to open a CSV file for the periodic metrics reports: {}",
+                                err
+                            );
+                            exit(128);
+                        }
+                        _ => exit(0),
+                    }
                 }
             }
         }

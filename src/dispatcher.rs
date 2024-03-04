@@ -35,9 +35,9 @@ use crate::{
     listener::{Filter, Listener, PacketWrapper},
 };
 
-/// An enum of errors returned by the [Dispatcher].
+/// An enum of errors returned by the [`Dispatcher::add_listener`].
 #[derive(Debug, PartialEq)]
-pub enum Error {
+pub enum ListenerError {
     /// Returned on an attempt to add a duplicate listener.
     ///
     /// There must be at most one listener bound to an interface.
@@ -45,6 +45,14 @@ pub enum Error {
     /// yields this error. It can be returned by the
     /// [`Dispatcher::add_listener`] function.
     AddListenerExists,
+}
+
+/// An enum of errors returned by the [`Dispatcher::dispatch`]
+pub enum DispatchError {
+    /// Returned when starting an HTTP server failed.
+    HttpServerError(std::io::Error),
+    /// Returned when opening a file writer for CSV reports fails.
+    CsvWriterError(String),
 }
 
 /// A HTTP handler for exposing metrics to Prometheus.
@@ -116,9 +124,13 @@ impl Dispatcher {
     /// The [Filter] applies filtering rules for packets capturing. For example,
     /// it can be used to filter only BOOTP packets, only UDP packets, select
     /// port number etc.
-    pub fn add_listener(&mut self, interface_name: &str, filter: &Filter) -> Result<(), Error> {
+    pub fn add_listener(
+        &mut self,
+        interface_name: &str,
+        filter: &Filter,
+    ) -> Result<(), ListenerError> {
         if self.listeners.contains_key(interface_name) {
-            return Err(Error::AddListenerExists);
+            return Err(ListenerError::AddListenerExists);
         }
         let mut listener = Listener::new(interface_name);
         listener.filter(filter);
@@ -135,7 +147,7 @@ impl Dispatcher {
     ///
     /// - `analyzer` - an analyzer instance implementing a Prometheus
     ///   metrics collector.
-    fn conditionally_start_http_server(&self, analyzer: Analyzer) {
+    fn conditionally_start_http_server(&self, analyzer: Analyzer) -> Result<(), std::io::Error> {
         // Check if metrics export to Prometheus should be enabled.
         if let Some(prometheus_metrics_address) = &self.prometheus_metrics_address {
             // Create the prometheus registry and register our analyzer
@@ -150,12 +162,13 @@ impl Dispatcher {
                     .app_data(registry.clone())
                     .service(web::resource("/metrics").route(web::get().to(metrics_handler)))
             })
-            .bind(prometheus_metrics_address)
-            .unwrap()
+            .bind(prometheus_metrics_address)?
             .run();
             // Run the HTTP server asynchronously.
             tokio::spawn(async move { server.await });
+            return Ok(());
         }
+        Ok(())
     }
 
     /// Enables generation of the periodic metrics report in CSV format.
@@ -195,7 +208,7 @@ impl Dispatcher {
     /// - receives the packets from the network and sends them to the analysis,
     /// - runs an HTTP service exporting metrics to the external entities (like Prometheus),
     /// - generates periodic tasks such as writing periodic reports.
-    pub async fn dispatch(mut self) {
+    pub async fn dispatch(mut self) -> Result<(), DispatchError> {
         // Open a channel to receive the packets captured by the listeners in
         // the threads.
         let (tx, mut rx) = tokio::sync::mpsc::channel::<PacketWrapper>(100);
@@ -212,7 +225,10 @@ impl Dispatcher {
 
         // Start the HTTP server exporting the metrics to Prometheus if a
         // user has specified the metrics endpoint address.
-        self.conditionally_start_http_server(analyzer.clone());
+        let result = self.conditionally_start_http_server(analyzer.clone());
+        if result.is_err() {
+            return Err(DispatchError::HttpServerError(result.err().unwrap()));
+        }
 
         // Check if the user has specified the output location for the CSV reports.
         // In this case, it opens a writer for and runs an asynchronous task writing
@@ -226,13 +242,19 @@ impl Dispatcher {
                     WriterBuilder::new().has_headers(true).from_writer(stdout()),
                 ),
                 // Write to a file.
-                CsvOutputType::File(csv_output) => self.conditionally_enable_csv_reports(
-                    analyzer.clone(),
-                    WriterBuilder::new()
-                        .has_headers(true)
-                        .from_path(csv_output)
-                        .unwrap(),
-                ),
+                CsvOutputType::File(csv_output) => {
+                    let writer = WriterBuilder::new().has_headers(true).from_path(csv_output);
+                    match writer {
+                        Ok(writer) => {
+                            self.conditionally_enable_csv_reports(analyzer.clone(), writer)
+                        }
+                        Err(_) => {
+                            return Err(DispatchError::CsvWriterError(
+                                writer.err().unwrap().to_string(),
+                            ))
+                        }
+                    }
+                }
             }
         }
         // Schedule packets capturing.
@@ -250,12 +272,16 @@ impl Dispatcher {
         // Install Ctrl-C signal handler to exit the program when it is pressed.
         let ctrl_c = signal::ctrl_c();
         ctrl_c.await.expect("Error waiting for the Ctrl-C signal");
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::dispatcher::{Dispatcher, Error::AddListenerExists};
+
+    use crate::dispatcher::CsvOutputType;
+    use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
+    use crate::dispatcher::{Dispatcher, ListenerError::AddListenerExists};
     use crate::listener::Filter;
 
     #[test]
@@ -281,5 +307,25 @@ mod tests {
         assert!(dispatcher.listeners.contains_key("lo"));
         assert!(dispatcher.listeners.contains_key("lo0"));
         assert!(!dispatcher.listeners.contains_key("bridge"));
+    }
+
+    #[tokio::test]
+    async fn start_http_server_invalid_address() {
+        let mut dispatcher = Dispatcher::new();
+        // Set invalid binding address.
+        dispatcher.prometheus_metrics_address = Some("127.0.0.1:".to_string());
+        let result = dispatcher.dispatch().await;
+        assert!(matches!(result.unwrap_err(), HttpServerError { .. }));
+    }
+
+    #[tokio::test]
+    async fn enable_csv_report_invalid_file_path() {
+        let mut dispatcher = Dispatcher::new();
+        // Set invalid binding address.
+        dispatcher.csv_output = Some(CsvOutputType::File(
+            "/probablynotexistingdir/file".to_string(),
+        ));
+        let result = dispatcher.dispatch().await;
+        assert!(matches!(result.unwrap_err(), CsvWriterError { .. }));
     }
 }
