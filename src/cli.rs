@@ -43,18 +43,17 @@ enum Commands {
         /// Interface name.
         #[arg(short, long)]
         interface_name: Vec<String>,
-        /// Address and port of the HTTP server providing the metrics to Prometheus and
-        /// REST API (e.g., 127.0.0.1:8080).
+        /// Address and port where the program opens an HTTP server and exposes REST API and Prometheus exporter are bound.
         #[arg(short = 'a', long)]
         http_address: Option<String>,
         /// File location where the metrics should be periodically written in the CSV format.
         /// Use stdout to write the metrics to the console.
         #[arg(short, long)]
         csv_output: Option<String>,
-        /// Specifies the interval at which the periodic report with metrics is generated.
+        /// Specifies the interval at which the periodic metrics report is generated.
         #[arg(short, long)]
         report_interval: Option<u64>,
-        /// Enables the metrics export to Prometheus on [http-address]/metrics endpoint.
+        /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
         #[arg(long, action)]
         prometheus: bool,
         /// Enables the REST API on [http-address]/api endpoint.
