@@ -10,10 +10,9 @@ pub mod cli;
 pub mod dispatcher;
 pub mod listener;
 pub mod proto;
-pub mod thread;
-pub mod timer;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     cli.run();
 }

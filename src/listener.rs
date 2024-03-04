@@ -3,11 +3,11 @@
 //! mechanism to a caller.
 
 use pcap::{Capture, PacketHeader};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tokio::sync::mpsc::Sender;
 
-use crate::thread::Event;
+use futures::executor::block_on;
 
 /// Encapsulates the captured packet.
 ///
@@ -73,7 +73,7 @@ trait State {
     ///
     /// When the listener has already been started calling this function
     /// has no effect.
-    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State>;
+    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State>;
 }
 
 /// Represents a state of the [Listener] before it is run.
@@ -153,7 +153,7 @@ impl Listener {
     /// creating the sender and the receiver instance. It is safe to share the same
     /// sender between multiple threads. Typically, there is only one receiver instance
     /// collecting the packets from several threads.
-    pub fn start(&mut self, sender: Arc<Mutex<Sender<Event>>>) {
+    pub fn start(&mut self, sender: Arc<Mutex<Sender<PacketWrapper>>>) {
         if let Some(s) = self.state.take() {
             self.state = Some(s.start(sender))
         }
@@ -168,7 +168,7 @@ impl State for Inactive {
         })
     }
 
-    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State> {
+    fn start(self: Box<Self>, sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
         let mut capture = Capture::from_device(self.interface_name.as_str())
             .expect("failed to open capture")
             .timeout(1000)
@@ -189,11 +189,21 @@ impl State for Inactive {
                     data: packet.data.to_vec(),
                     filter: filter.clone(),
                 };
-                sender
-                    .lock()
-                    .unwrap()
-                    .send(Event::PacketReceived(packet))
-                    .expect("failed to send received packet");
+                let locked_sender = sender.lock();
+                match locked_sender {
+                    Ok(locked_sender) => {
+                        let send_result = block_on(locked_sender.send(packet));
+                        // An error sending the packet indicates that the channel has been closed
+                        // or the receiver is no longer listening. The thread should return because
+                        // there is no way to recover.
+                        if send_result.is_err() {
+                            return;
+                        }
+                    }
+                    // If we were unable to lock the sender the channel must have been closed.
+                    // We're unable to recover from this situation.
+                    Err(_) => return,
+                }
             }
         });
         Box::new(Active {})
@@ -205,7 +215,7 @@ impl State for Active {
         self
     }
 
-    fn start(self: Box<Self>, _sender: Arc<Mutex<Sender<Event>>>) -> Box<dyn State> {
+    fn start(self: Box<Self>, _sender: Arc<Mutex<Sender<PacketWrapper>>>) -> Box<dyn State> {
         self
     }
 }

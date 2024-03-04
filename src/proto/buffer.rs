@@ -48,6 +48,7 @@ pub enum BufferError {
 /// access. Thus, any number greater than the maximum is set to the maximum. Any number
 /// lower than the minimum is set to the minimum. A number within the range is left
 /// unchanged.
+#[derive(Clone)]
 pub struct ClampedNumber<T: PartialOrd> {
     actual: T,
     clamped: T,
@@ -87,6 +88,7 @@ impl<T: PartialOrd + Copy> ClampedNumber<T> {
 /// The caller must know the positions of the desired data fields. The functions reading
 /// the data seek to the specified positions. If the specified position or the read
 /// data length are out of bounds the [BufferError::ReadOutOfBounds] error is returned.
+#[derive(Clone)]
 pub struct ReceiveBuffer<'a> {
     buffer: &'a [u8],
 }

@@ -13,9 +13,12 @@
 //! Cli::parse().run();
 //! ```
 
-use crate::{dispatcher, listener::Filter, timer};
+use crate::{
+    dispatcher::{self, CsvOutputType},
+    listener::Filter,
+};
 use clap::{Parser, Subcommand};
-use std::sync::atomic::Ordering;
+use futures::executor::block_on;
 
 /// A structure holding parsed program arguments.
 #[derive(Parser)]
@@ -38,6 +41,17 @@ enum Commands {
         /// Interface name.
         #[arg(short, long)]
         interface_name: Vec<String>,
+        /// Address to which the Prometheus endpoint is bound (e.g., 127.0.0.1:8080).
+        /// Specifying this parameter enables the Prometheus endpoint (e.g., http://127.0.0.1:8080/metrics).
+        #[arg(short, long)]
+        prometheus_metrics_address: Option<String>,
+        /// File location where the metrics should be periodically written in the CSV format.
+        /// Use stdout to write the metrics to the console.
+        #[arg(short, long)]
+        csv_output: Option<String>,
+        /// Specifies the interval at which the periodic report with metrics is generated.
+        #[arg(short, long)]
+        report_interval: Option<u64>,
     },
 }
 
@@ -59,8 +73,10 @@ impl Cli {
             match commands {
                 Commands::Collect {
                     interface_name: interface_names,
+                    prometheus_metrics_address,
+                    csv_output,
+                    report_interval,
                 } => {
-                    Cli::install_signal_handler();
                     let mut dispatcher = dispatcher::Dispatcher::new();
                     let filter = Filter::new().bootp_server_relay();
                     for interface_name in interface_names.iter() {
@@ -68,21 +84,18 @@ impl Cli {
                             .add_listener(interface_name.as_str(), &filter)
                             .expect("listener already added");
                     }
-                    dispatcher
-                        .add_timer(timer::Type::DataScrape, 3000)
-                        .expect("timer already added");
-                    dispatcher.dispatch();
+                    dispatcher.prometheus_metrics_address = prometheus_metrics_address;
+                    dispatcher.csv_output =
+                        csv_output.map(|csv_output| match csv_output.as_str() {
+                            "stdout" => CsvOutputType::Stdout,
+                            _ => CsvOutputType::File(csv_output),
+                        });
+                    if let Some(report_interval) = report_interval {
+                        dispatcher.report_interval = report_interval;
+                    }
+                    block_on(dispatcher.dispatch());
                 }
             }
         }
-    }
-
-    /// Installs the signal handler to break the traffic capture,
-    ///
-    /// The signal handler runs in a thread. It sets the [dispatcher::STOP] value
-    /// to notify the dispatcher that the program is terminating.
-    fn install_signal_handler() {
-        ctrlc::set_handler(|| dispatcher::STOP.store(true, Ordering::Release))
-            .expect("error setting Ctrl+C handler");
     }
 }

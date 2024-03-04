@@ -58,7 +58,7 @@ pub const FILE_MAX_LEN: usize = 128;
 /// If the parsed message type is neither [OpCode::BootRequest] nor
 /// [OpCode::BootReply] it is set to [OpCode::Invalid] with the actual
 /// code as an enum parameter.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum OpCode {
     /// A request sent to the server.
     BootRequest,
@@ -112,6 +112,7 @@ impl From<u8> for HType {
 /// The length of the hardware address depends on the hardware type. Thus,
 /// this structure includes both the buffer with an actual address and the
 /// hardware type.
+#[derive(Clone)]
 pub struct HAddr {
     htype: HType,
     data: Vec<u8>,
@@ -183,6 +184,7 @@ pub struct RawState;
 /// [PartiallyParsedState]. The cached value is returned the next time the same
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
+#[derive(Clone)]
 pub struct PartiallyParsedState<'a> {
     buffer: ReceiveBuffer<'a>,
     parsed_opcode: Option<OpCode>,
@@ -213,6 +215,7 @@ pub struct PartiallyParsedState<'a> {
 /// is unparsed and exposes no data parsing functions. The packet must be
 /// explicitly transitioned to the [PartiallyParsedState] before parsing and
 /// accessing the named data fields carried in the packet.
+#[derive(Clone)]
 pub struct ReceivedPacket<'a, State> {
     /// Unparsed packet data.
     data: &'a [u8],
@@ -440,7 +443,7 @@ mod tests {
     #[test]
     fn valid_packet() {
         let test_packet = TestBootpPacket::new();
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
 
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::BootReply));
@@ -467,7 +470,7 @@ mod tests {
     #[test]
     fn invalid_opcode() {
         let test_packet = TestBootpPacket::new().set(OPCODE_POS, &vec![5]);
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::Invalid(5)));
     }
@@ -475,7 +478,7 @@ mod tests {
     #[test]
     fn other_htype() {
         let test_packet = TestBootpPacket::new().set(HTYPE_POS, &vec![244]);
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Other(244)));
     }
@@ -486,7 +489,7 @@ mod tests {
             .set(HTYPE_POS, &vec![2, 4])
             .set(CHADDR_POS, &vec![1, 2, 3, 4]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Other(2)));
 
@@ -505,7 +508,7 @@ mod tests {
             &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
         );
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Ethernet));
 
@@ -524,7 +527,7 @@ mod tests {
     fn zero_hlen() {
         let test_packet = TestBootpPacket::new().set(HLEN_POS, &vec![0]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Ethernet));
 
@@ -540,7 +543,7 @@ mod tests {
     fn empty_sname() {
         let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         let sname = parsed_packet.sname();
         assert!(sname.is_ok());
@@ -552,7 +555,7 @@ mod tests {
     fn too_long_sname() {
         let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         let sname = parsed_packet.sname();
         assert!(sname.is_ok());
@@ -564,7 +567,7 @@ mod tests {
     fn empty_file() {
         let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![0; FILE_MAX_LEN]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         let file = parsed_packet.file();
         assert!(file.is_ok());
@@ -576,7 +579,7 @@ mod tests {
     fn too_long_file() {
         let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![65; FILE_MAX_LEN]);
 
-        let packet = ReceivedPacket::new(&test_packet.get());
+        let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         let file = parsed_packet.file();
         assert!(file.is_ok());
