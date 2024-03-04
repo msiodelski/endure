@@ -14,9 +14,11 @@
 //! let mut dispatcher = dispatcher::Dispatcher::new();
 //! let filter = Filter::new().bootp_server_relay();
 //! dispatcher.add_listener("bridge100", filter).expect("listener already added");
-//! dispatcher.prometheus_metrics_address = "127.0.0.1:8080"
+//! dispatcher.http_address = Some("127.0.0.1:8080".to_string());
+//! dispatcher.enable_prometheus = true;
+//! dispatcher.enable_api = true;
 //! dispatcher.csv_output = CsvOutputType::File("./csv_metrics.csv")
-//! dispatcher.dispatch();
+//! dispatcher.dispatch().await.unwrap();
 //! ```
 
 use std::{
@@ -145,7 +147,7 @@ impl Dispatcher {
     ///
     /// The listener is installed for the specific device (i.e., interface).
     /// If there is another listener installed for this device already
-    /// it returns [`Error::AddListenerExists`] error.
+    /// it returns [`ListenerError::AddListenerExists`] error.
     ///
     /// The [Filter] applies filtering rules for packets capturing. For example,
     /// it can be used to filter only BOOTP packets, only UDP packets, select

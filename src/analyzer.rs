@@ -136,7 +136,7 @@ where
     ///
     /// # Parameters
     ///
-    /// - `id`` - a rank identifier (e.g., a client MAC address).
+    /// - `id` - a rank identifier (e.g., a client MAC address).
     /// - `score` - a value of the metrics (e.g., `secs` field value).
     fn add_score(&mut self, id: IDENT, score: SCORE) {
         // Remove expired scores.

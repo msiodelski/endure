@@ -22,5 +22,7 @@ jobs:
         sudo apt-get install libpcap-dev
     - name: Build
       run: cargo build --verbose
+    - name: Documentation
+      run: cargo doc
     - name: Run tests
       run: cargo test --verbose

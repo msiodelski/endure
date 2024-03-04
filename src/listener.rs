@@ -29,8 +29,8 @@ pub struct PacketWrapper {
 /// Packet listener capturing packets from a single interface.
 ///
 /// The listener is stateful. It can be in one of the two states:
-/// - [Inactive] - the listener is not capturing the packets and can be configured.
-/// - [Active] - the listener is capturing the packets.
+/// - Inactive - the listener is not capturing the packets and can be configured.
+/// - Active - the listener is capturing the packets.
 ///
 /// There can be at most one listener instance for each interface.
 ///
@@ -144,7 +144,7 @@ impl Listener {
     /// Starts the listener.
     ///
     /// It applies the specified filter and spawns a new thread to capture packets.
-    /// It changes the listener's state to [Active].
+    /// It changes the listener's state to Active.
     ///
     /// # Arguments
     ///
