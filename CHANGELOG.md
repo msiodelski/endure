@@ -1,5 +1,8 @@
 # ChangeLog
 
+* Enabled REST API endpoint for exporting the metrics as JSON.
+  (Github #28, #30).
+
 * Metrics export to Prometheus.
   (Github #26, #27).
 
