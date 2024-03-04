@@ -359,6 +359,7 @@ mod tests {
         let mut dispatcher = Dispatcher::new();
         // Set invalid binding address.
         dispatcher.http_server_address = Some("127.0.0.1:".to_string());
+        dispatcher.enable_api = true;
         let result = dispatcher.dispatch().await;
         assert!(matches!(result.unwrap_err(), HttpServerError { .. }));
     }
