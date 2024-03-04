@@ -55,7 +55,7 @@ pub enum DispatchError {
     CsvWriterError(String),
 }
 
-/// A HTTP handler for exposing metrics to Prometheus.
+/// An HTTP handler for exposing the metrics to Prometheus.
 ///
 /// # Parameters
 ///
@@ -66,6 +66,24 @@ async fn metrics_handler(registry: web::Data<Mutex<Registry>>) -> Result<HttpRes
     encode(&mut body, &registry).unwrap();
     Ok(HttpResponse::Ok()
         .content_type("application/openmetrics-text; version=1.0.0; charset=utf-8")
+        .body(body))
+}
+
+/// An HTTP handler for exposing the metrics via the REST API.
+///
+/// It gathers the metrics from the analyzer and converts it to
+/// the JSON format.
+///
+/// # Parameters
+///
+/// - `analyzer` - a packet analyzer instance.
+async fn api_metrics_handler(analyzer: web::Data<Mutex<Analyzer>>) -> Result<HttpResponse> {
+    let report = {
+        analyzer.lock().unwrap().current_dhcpv4_report();
+    };
+    let body = serde_json::to_string(&report).unwrap();
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
         .body(body))
 }
 
@@ -83,10 +101,10 @@ pub enum CsvOutputType {
 pub struct Dispatcher {
     listeners: HashMap<String, Listener>,
 
-    /// Address and port where metrics endpoint is bound.
+    /// Address and port where HTTP server is bound.
     ///
-    /// If it is `None` the metrics for Prometheus is disabled.
-    pub prometheus_metrics_address: Option<String>,
+    /// The same address is used for exporting Prometheus metrics and REST API.
+    pub http_server_address: Option<String>,
 
     /// Location where the periodic CSV reports are written.
     ///
@@ -99,6 +117,12 @@ pub struct Dispatcher {
     /// This value is ignored when generating the periodic report is not
     /// enabled with the [`Dispatcher::csv_output`] parameter.
     pub report_interval: u64,
+
+    /// Enables the Prometheus endpoint.
+    pub enable_prometheus: bool,
+
+    /// Enables the REST API.
+    pub enable_api: bool,
 }
 
 impl Dispatcher {
@@ -109,9 +133,11 @@ impl Dispatcher {
     pub fn new() -> Dispatcher {
         Dispatcher {
             listeners: HashMap::new(),
-            prometheus_metrics_address: None,
+            http_server_address: None,
             csv_output: None,
             report_interval: 10,
+            enable_prometheus: false,
+            enable_api: false,
         }
     }
 
@@ -149,20 +175,39 @@ impl Dispatcher {
     ///   metrics collector.
     fn conditionally_start_http_server(&self, analyzer: Analyzer) -> Result<(), std::io::Error> {
         // Check if metrics export to Prometheus should be enabled.
-        if let Some(prometheus_metrics_address) = &self.prometheus_metrics_address {
+        if let Some(http_server_address) = &self.http_server_address {
+            // Only start the server when the Prometheus or API endpoint are enabled.
+            let enable_prometheus = self.enable_prometheus;
+            let enable_api = self.enable_api;
+            if !enable_prometheus && !enable_api {
+                return Ok(());
+            }
             // Create the prometheus registry and register our analyzer
             // as a metrics collector. The metrics collector encodes the
-            // metrics into the format readable by prometheus.
+            // metrics into the format readable by prometheus
             let mut registry = Registry::default();
-            registry.register_collector(Box::new(analyzer));
+            registry.register_collector(Box::new(analyzer.clone()));
             let registry = web::Data::new(Mutex::new(registry));
+            let analyzer = web::Data::new(Mutex::new(analyzer.clone()));
             // Create HTTP server.
             let server = HttpServer::new(move || {
-                App::new()
+                let mut app = App::new()
                     .app_data(registry.clone())
-                    .service(web::resource("/metrics").route(web::get().to(metrics_handler)))
+                    .app_data(analyzer.clone());
+                // Conditionally enable the Prometheus endpoint.
+                if enable_prometheus {
+                    app = app
+                        .service(web::resource("/metrics").route(web::get().to(metrics_handler)));
+                }
+                // Conditionally enable the REST API.
+                if enable_api {
+                    app = app.service(
+                        web::resource("/api/metrics").route(web::get().to(api_metrics_handler)),
+                    );
+                }
+                app
             })
-            .bind(prometheus_metrics_address)?
+            .bind(http_server_address)?
             .run();
             // Run the HTTP server asynchronously.
             tokio::spawn(async move { server.await });
@@ -288,7 +333,7 @@ mod tests {
     fn new_dispatcher() {
         let dispatcher = Dispatcher::new();
         assert_eq!(0, dispatcher.listeners.len());
-        assert!(dispatcher.prometheus_metrics_address.is_none());
+        assert!(dispatcher.http_server_address.is_none());
         assert!(dispatcher.csv_output.is_none());
         assert_eq!(10, dispatcher.report_interval);
     }
@@ -313,7 +358,7 @@ mod tests {
     async fn start_http_server_invalid_address() {
         let mut dispatcher = Dispatcher::new();
         // Set invalid binding address.
-        dispatcher.prometheus_metrics_address = Some("127.0.0.1:".to_string());
+        dispatcher.http_server_address = Some("127.0.0.1:".to_string());
         let result = dispatcher.dispatch().await;
         assert!(matches!(result.unwrap_err(), HttpServerError { .. }));
     }

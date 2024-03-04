@@ -43,10 +43,10 @@ enum Commands {
         /// Interface name.
         #[arg(short, long)]
         interface_name: Vec<String>,
-        /// Address to which the Prometheus endpoint is bound (e.g., 127.0.0.1:8080).
-        /// Specifying this parameter enables the Prometheus endpoint (e.g., http://127.0.0.1:8080/metrics).
-        #[arg(short, long)]
-        prometheus_metrics_address: Option<String>,
+        /// Address and port of the HTTP server providing the metrics to Prometheus and
+        /// REST API (e.g., 127.0.0.1:8080).
+        #[arg(short = 'a', long)]
+        http_address: Option<String>,
         /// File location where the metrics should be periodically written in the CSV format.
         /// Use stdout to write the metrics to the console.
         #[arg(short, long)]
@@ -54,6 +54,12 @@ enum Commands {
         /// Specifies the interval at which the periodic report with metrics is generated.
         #[arg(short, long)]
         report_interval: Option<u64>,
+        /// Enables the metrics export to Prometheus on [http-address]/metrics endpoint.
+        #[arg(long, action)]
+        prometheus: bool,
+        /// Enables the REST API on [http-address]/api endpoint.
+        #[arg(long, action)]
+        api: bool,
     },
 }
 
@@ -75,9 +81,11 @@ impl Cli {
             match commands {
                 Commands::Collect {
                     interface_name: interface_names,
-                    prometheus_metrics_address,
+                    http_address,
                     csv_output,
                     report_interval,
+                    prometheus,
+                    api,
                 } => {
                     // Create the dispatcher to multiplex tasks.
                     let mut dispatcher = dispatcher::Dispatcher::new();
@@ -91,8 +99,16 @@ impl Cli {
                             exit(128);
                         }
                     }
-                    // Conditionally enable an export to Prometheus.
-                    dispatcher.prometheus_metrics_address = prometheus_metrics_address;
+                    // Make sure the HTTP server address has been specified if we want to
+                    // export the metrics to Prometheus or expose the API.
+                    if (prometheus || api) && http_address == None {
+                        eprintln!("http_address is required to enable Prometheus export and/or API endpoint");
+                        exit(128);
+                    }
+                    // Conditionally enable an export to Prometheus and/or API.
+                    dispatcher.http_server_address = http_address;
+                    dispatcher.enable_prometheus = prometheus;
+                    dispatcher.enable_api = api;
                     // Conditionally enable periodic CSV reports.
                     dispatcher.csv_output =
                         csv_output.map(|csv_output| match csv_output.as_str() {
