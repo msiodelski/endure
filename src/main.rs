@@ -20,6 +20,7 @@ pub mod cli;
 pub mod dispatcher;
 pub mod listener;
 pub mod proto;
+pub mod sse;
 
 #[tokio::main]
 async fn main() {

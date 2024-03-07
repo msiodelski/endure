@@ -27,7 +27,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use actix_web::{web, App, HttpResponse, HttpServer, Result};
+use actix_web::{get, web, App, HttpResponse, HttpServer, Responder, Result};
 use csv::{Writer, WriterBuilder};
 use prometheus_client::{encoding::text::encode, registry::Registry};
 use tokio::{signal, time};
@@ -35,6 +35,7 @@ use tokio::{signal, time};
 use crate::{
     analyzer::Analyzer,
     listener::{Filter, Listener, PacketWrapper},
+    sse::{self, Event, EventGateway},
 };
 
 /// An enum of errors returned by the [`Dispatcher::add_listener`].
@@ -58,35 +59,21 @@ pub enum DispatchError {
 }
 
 /// An HTTP handler for exposing the metrics to Prometheus.
-///
-/// # Parameters
-///
-/// - `registry` - a Prometheus registry.
-async fn metrics_handler(registry: web::Data<Mutex<Registry>>) -> Result<HttpResponse> {
-    let registry = registry.lock().unwrap();
-    let mut body = String::new();
-    encode(&mut body, &registry).unwrap();
-    Ok(HttpResponse::Ok()
-        .content_type("application/openmetrics-text; version=1.0.0; charset=utf-8")
-        .body(body))
+#[get("/metrics")]
+async fn metrics_handler(registry_wrapper: web::Data<RegistryWrapper>) -> Result<HttpResponse> {
+    registry_wrapper.http_encode_metrics().await
 }
 
 /// An HTTP handler for exposing the metrics via the REST API.
-///
-/// It gathers the metrics from the analyzer and converts it to
-/// the JSON format.
-///
-/// # Parameters
-///
-/// - `analyzer` - a packet analyzer instance.
-async fn api_metrics_handler(analyzer: web::Data<Mutex<Analyzer>>) -> Result<HttpResponse> {
-    let report = {
-        analyzer.lock().unwrap().current_dhcpv4_report();
-    };
-    let body = serde_json::to_string(&report).unwrap();
-    Ok(HttpResponse::Ok()
-        .content_type("application/json")
-        .body(body))
+#[get("/api/metrics")]
+async fn api_metrics_handler(analyzer: web::Data<Analyzer>) -> Result<HttpResponse> {
+    analyzer.http_encode_to_json().await
+}
+
+/// An HTTP handler for exposing server sent events.
+#[get("/sse")]
+async fn sse_handler(event_gateway: web::Data<EventGateway>) -> impl Responder {
+    event_gateway.http_new_client().await
 }
 
 /// Location of the CSV metrics reports.
@@ -99,9 +86,47 @@ pub enum CsvOutputType {
     File(String),
 }
 
+/// Wraps [`Registry`] instance and registers a custom collector.
+struct RegistryWrapper {
+    registry: Registry,
+}
+
+impl RegistryWrapper {
+    /// Creates a wrapper instance and registers an [`Analyzer`] as
+    /// a cutom collector.
+    fn new(analyzer: Analyzer) -> Self {
+        let mut registry = Registry::default();
+        registry.register_collector(Box::new(analyzer));
+        Self { registry }
+    }
+
+    /// HTTP server handler returning collected metrics as a HTTP response.
+    ///
+    /// This function is directly called from the HTTP server handler for
+    /// the `/metrics` endpoint.
+    ///
+    /// # Errors
+    ///
+    /// It may return an HTTP 500 status code when encoding the metrics
+    /// fails. This, however, is highly unlikely.
+    async fn http_encode_metrics(&self) -> Result<HttpResponse> {
+        let mut body = String::new();
+        match encode(&mut body, &self.registry) {
+            Ok(_) => Ok(HttpResponse::Ok()
+                .content_type("application/openmetrics-text; version=1.0.0; charset=utf-8")
+                .body(body)),
+            Err(_) => Ok(HttpResponse::InternalServerError()
+                .content_type("application/openmetrics-text; version=1.0.0; charset=utf-8")
+                .finish()),
+        }
+    }
+}
+
 /// Runs the installed listeners until the stop signal occurs.
 pub struct Dispatcher {
     listeners: HashMap<String, Listener>,
+
+    event_gateway: Arc<EventGateway>,
 
     /// Address and port where HTTP server is bound.
     ///
@@ -125,6 +150,9 @@ pub struct Dispatcher {
 
     /// Enables the REST API.
     pub enable_api: bool,
+
+    /// Enables server sent events (SSE).
+    pub enable_sse: bool,
 }
 
 impl Dispatcher {
@@ -135,11 +163,13 @@ impl Dispatcher {
     pub fn new() -> Dispatcher {
         Dispatcher {
             listeners: HashMap::new(),
+            event_gateway: Arc::new(EventGateway::new()),
             http_server_address: None,
             csv_output: None,
             report_interval: 10,
             enable_prometheus: false,
             enable_api: false,
+            enable_sse: false,
         }
     }
 
@@ -178,39 +208,49 @@ impl Dispatcher {
     fn conditionally_start_http_server(&self, analyzer: Analyzer) -> Result<(), std::io::Error> {
         // Check if metrics export to Prometheus should be enabled.
         if let Some(http_server_address) = &self.http_server_address {
-            // Only start the server when the Prometheus or API endpoint are enabled.
             let enable_prometheus = self.enable_prometheus;
             let enable_api = self.enable_api;
-            if !enable_prometheus && !enable_api {
+            let enable_sse = self.enable_sse;
+            // Only start the server when the Prometheus, API endpoint or SSE are enabled.
+            if !enable_prometheus && !enable_api && !enable_sse {
                 return Ok(());
             }
             // Create the prometheus registry and register our analyzer
             // as a metrics collector. The metrics collector encodes the
-            // metrics into the format readable by prometheus
-            let mut registry = Registry::default();
-            registry.register_collector(Box::new(analyzer.clone()));
-            let registry = web::Data::new(Mutex::new(registry));
-            let analyzer = web::Data::new(Mutex::new(analyzer.clone()));
+            // metrics into the format readable by Prometheus
+            let registry_wrapper = web::Data::new(RegistryWrapper::new(analyzer.clone()));
+
+            // Analyzer instance is required by the API handler. Let's make
+            // it available to the handler.
+            let analyzer = web::Data::new(analyzer.clone());
+
+            // Finally, the event gateway is required by the SSE handler.
+            let event_gateway = web::Data::from(self.event_gateway.clone());
+
             // Create HTTP server.
             let server = HttpServer::new(move || {
                 let mut app = App::new()
-                    .app_data(registry.clone())
-                    .app_data(analyzer.clone());
+                    .app_data(registry_wrapper.clone())
+                    .app_data(analyzer.clone())
+                    .app_data(event_gateway.clone());
+
                 // Conditionally enable the Prometheus endpoint.
                 if enable_prometheus {
-                    app = app
-                        .service(web::resource("/metrics").route(web::get().to(metrics_handler)));
+                    app = app.service(metrics_handler);
                 }
                 // Conditionally enable the REST API.
                 if enable_api {
-                    app = app.service(
-                        web::resource("/api/metrics").route(web::get().to(api_metrics_handler)),
-                    );
+                    app = app.service(api_metrics_handler);
+                }
+                // Conditionally enable SSE.
+                if enable_sse {
+                    app = app.service(sse_handler);
                 }
                 app
             })
             .bind(http_server_address)?
             .run();
+
             // Run the HTTP server asynchronously.
             tokio::spawn(async move { server.await });
             return Ok(());
@@ -233,13 +273,23 @@ impl Dispatcher {
     ) where
         T: std::io::Write + Send + 'static,
     {
+        let event_gateway = self.event_gateway.clone();
         let mut interval = tokio::time::interval(time::Duration::from_secs(self.report_interval));
         let report_future = async move {
             loop {
                 interval.tick().await;
                 let report = { analyzer.lock().unwrap().current_dhcpv4_report() };
-                writer.serialize(report).unwrap();
+
+                // Write the CSV report into a file or stdout.
+                writer.serialize(report.clone()).unwrap();
                 let _ = writer.flush();
+
+                // If the SSE is enabled, let's also return the report to the SSE subscribers.
+                let event = Event::new(sse::EventType::PeriodicReport)
+                    .with_payload(report)
+                    .unwrap();
+                let _ = event_gateway.clone().send_event(event).await;
+
                 interval.reset();
             }
         };
@@ -326,10 +376,24 @@ impl Dispatcher {
 #[cfg(test)]
 mod tests {
 
-    use crate::dispatcher::CsvOutputType;
+    use actix_web::body::to_bytes;
+    use actix_web::web::Bytes;
+
+    use crate::analyzer::Analyzer;
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
+    use crate::dispatcher::{CsvOutputType, RegistryWrapper};
     use crate::dispatcher::{Dispatcher, ListenerError::AddListenerExists};
     use crate::listener::Filter;
+
+    trait BodyTest {
+        fn as_str(&self) -> &str;
+    }
+
+    impl BodyTest for Bytes {
+        fn as_str(&self) -> &str {
+            std::str::from_utf8(self).unwrap()
+        }
+    }
 
     #[test]
     fn new_dispatcher() {
@@ -375,5 +439,17 @@ mod tests {
         ));
         let result = dispatcher.dispatch().await;
         assert!(matches!(result.unwrap_err(), CsvWriterError { .. }));
+    }
+
+    #[tokio::test]
+    async fn encode_prometheus_metrics() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let registry_wrapper = RegistryWrapper::new(analyzer);
+        let result = registry_wrapper.http_encode_metrics().await;
+        assert!(result.is_ok());
+        let body = to_bytes(result.unwrap().into_body()).await.unwrap();
+        let body = body.as_str();
+        assert!(body.starts_with("# HELP"));
     }
 }
