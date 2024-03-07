@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Enabled server sent events (SSE) endpoint returning periodic
+  metrics reports.
+  (Github #29, #31).
+
 * Enabled REST API endpoint for exporting the metrics as JSON.
   (Github #28, #30).
 
