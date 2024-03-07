@@ -2,7 +2,7 @@
 
 use std::borrow::BorrowMut;
 use std::sync::atomic::AtomicU64;
-use std::sync::Mutex;
+use std::sync::{Mutex, RwLock};
 use std::{fmt::Debug, sync::Arc};
 
 use crate::{
@@ -10,6 +10,7 @@ use crate::{
     proto::{bootp::OpCode, dhcp::v4},
 };
 
+use actix_web::HttpResponse;
 use chrono::{DateTime, Local};
 use prometheus_client::{collector::Collector, encoding::EncodeMetric, metrics::gauge::Gauge};
 use serde::{Deserialize, Serialize};
@@ -360,6 +361,23 @@ impl DHCPv4Report {
             retransmit_longest_trying_client: String::new(),
         }
     }
+
+    /// Serializes the [`DHCPv4Report`] to a JSON string.
+    ///
+    /// # Errors
+    ///
+    /// Any occurence of the serialization error is unlikely in the well
+    /// defined structure like this one, and is an implementation error.
+    /// Thus, errors are swallowed.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&self).unwrap_or_default()
+    }
+}
+
+impl Default for DHCPv4Report {
+    fn default() -> Self {
+        DHCPv4Report::new()
+    }
 }
 
 /// A trait that must be implemented by each DHCPv4 auditor.
@@ -405,29 +423,35 @@ pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
 /// to perform the analysis.
 #[derive(Clone, Debug)]
 pub struct Analyzer {
-    /// DHCPv4 auditors.
-    dhcpv4_auditors: Arc<Mutex<Vec<Box<dyn DHCPv4PacketAuditor>>>>,
-    last_report: Arc<Mutex<DHCPv4Report>>,
+    auditors: Arc<Mutex<AnalyzerAuditorsState>>,
+    last_report: Arc<RwLock<DHCPv4Report>>,
+}
+
+#[derive(Debug, Default)]
+struct AnalyzerAuditorsState {
+    dhcpv4_auditors: Vec<Box<dyn DHCPv4PacketAuditor>>,
 }
 
 impl Analyzer {
     /// Instantiates the [`Analyzer`].
     pub fn new() -> Self {
-        Analyzer {
-            dhcpv4_auditors: Arc::new(Mutex::new(Vec::new())),
-            last_report: Arc::new(Mutex::new(DHCPv4Report::new())),
+        Self {
+            auditors: Arc::new(Mutex::new(AnalyzerAuditorsState::default())),
+            last_report: Arc::new(RwLock::new(DHCPv4Report::new())),
         }
     }
 
     /// Installs all default auditors.
     pub fn add_default_auditors(&mut self) {
-        self.dhcpv4_auditors
+        self.auditors
             .lock()
             .unwrap()
+            .dhcpv4_auditors
             .push(RetransmissionAuditor::new());
-        self.dhcpv4_auditors
+        self.auditors
             .lock()
             .unwrap()
+            .dhcpv4_auditors
             .push(OpCodeAuditor::new());
     }
 
@@ -465,9 +489,9 @@ impl Analyzer {
     /// - `packet` - a received unparsed DHCPv4 packet
     fn audit_dhcpv4<'a>(&mut self, packet: &v4::RawPacket<'a>) {
         let mut packet = packet.into_parsable();
-        for auditor in self.dhcpv4_auditors.lock().unwrap().iter_mut() {
+        for auditor in self.auditors.lock().unwrap().dhcpv4_auditors.iter_mut() {
             auditor.audit(&mut packet);
-            auditor.receive_report(self.last_report.lock().unwrap().borrow_mut());
+            auditor.receive_report(self.last_report.write().unwrap().borrow_mut());
         }
     }
 
@@ -478,8 +502,23 @@ impl Analyzer {
     /// Typically, this function is called periodically to make the report
     /// available to an external reader (e.g., to append the report as a
     /// row of a CSV file or to a Prometheus exporter).
-    pub fn current_dhcpv4_report(&mut self) -> DHCPv4Report {
-        self.last_report.lock().unwrap().clone()
+    pub fn current_dhcpv4_report(&self) -> DHCPv4Report {
+        self.last_report.read().unwrap().clone()
+    }
+
+    /// Returns a current metrics report as HTTP response.
+    ///
+    /// This function is called directly from the HTTP server handler returning
+    /// the entire report as a JSON string.
+    ///
+    /// # Errors
+    ///
+    /// This function returns no errors.
+    pub async fn http_encode_to_json(&self) -> actix_web::Result<HttpResponse> {
+        let report = self.current_dhcpv4_report();
+        Ok(HttpResponse::Ok()
+            .content_type("application/json")
+            .body(report.to_json()))
     }
 }
 
@@ -488,13 +527,9 @@ impl Collector for Analyzer {
         &self,
         mut encoder: prometheus_client::encoding::DescriptorEncoder,
     ) -> Result<(), std::fmt::Error> {
+        let last_report = &self.last_report.read().unwrap();
         let gauge = Gauge::<f64, AtomicU64>::default();
-        gauge.set(
-            self.last_report
-                .lock()
-                .unwrap()
-                .opcode_boot_requests_percent,
-        );
+        gauge.set(last_report.opcode_boot_requests_percent);
         let metric_encoder = encoder.encode_descriptor(
             "opcode_boot_requests_percent",
             "Percentage of the BootRequest messages.",
@@ -504,7 +539,7 @@ impl Collector for Analyzer {
         gauge.encode(metric_encoder)?;
 
         let gauge = Gauge::<f64, AtomicU64>::default();
-        gauge.set(self.last_report.lock().unwrap().opcode_boot_replies_percent);
+        gauge.set(last_report.opcode_boot_replies_percent);
         let metric_encoder = encoder.encode_descriptor(
             "opcode_boot_replies_percent",
             "Percentage of the BootReply messages.",
@@ -514,7 +549,7 @@ impl Collector for Analyzer {
         gauge.encode(metric_encoder)?;
 
         let gauge = Gauge::<f64, AtomicU64>::default();
-        gauge.set(self.last_report.lock().unwrap().opcode_invalid_percent);
+        gauge.set(last_report.opcode_invalid_percent);
         let metric_encoder = encoder.encode_descriptor(
             "opcode_invalid_percent",
             "Percentage of the invalid messages.",
@@ -524,7 +559,7 @@ impl Collector for Analyzer {
         gauge.encode(metric_encoder)?;
 
         let gauge = Gauge::<f64, AtomicU64>::default();
-        gauge.set(self.last_report.lock().unwrap().retransmit_percent);
+        gauge.set(last_report.retransmit_percent);
         let metric_encoder = encoder.encode_descriptor(
             "retransmit_percent",
             "Percentage of the retransmissions in the mssages sent by clients.",
@@ -534,7 +569,7 @@ impl Collector for Analyzer {
         gauge.encode(metric_encoder)?;
 
         let gauge = Gauge::<f64, AtomicU64>::default();
-        gauge.set(self.last_report.lock().unwrap().retransmit_secs_avg);
+        gauge.set(last_report.retransmit_secs_avg);
         let metric_encoder = encoder.encode_descriptor(
             "retransmit_secs_avg",
             "Average retransmission time (i.e. average time in retransmissions to acquire a new lease).",
@@ -676,6 +711,8 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
 
 #[cfg(test)]
 mod tests {
+    use actix_web::{body::to_bytes, web::Bytes};
+    use assert_json::assert_json;
     use prometheus_client::{encoding::text::encode, registry::Registry};
 
     use super::{Analyzer, DHCPv4Report, MovingRanks, OpCodeAuditor, RoundedSMA};
@@ -683,6 +720,16 @@ mod tests {
         analyzer::RetransmissionAuditor,
         proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
     };
+
+    trait BodyTest {
+        fn as_str(&self) -> &str;
+    }
+
+    impl BodyTest for Bytes {
+        fn as_str(&self) -> &str {
+            std::str::from_utf8(self).unwrap()
+        }
+    }
 
     /// A convenience function testing the returned rank.
     fn expect_rank(
@@ -790,6 +837,13 @@ mod tests {
     }
 
     #[test]
+    fn report_to_json() {
+        let report = DHCPv4Report::default();
+        let json = report.to_json();
+        assert_json!(json.as_ref(), { "opcode_boot_replies_percent": 0.0 });
+    }
+
+    #[test]
     fn dhcpv4_analysis() {
         let mut analyzer = Analyzer::new();
         analyzer.add_default_auditors();
@@ -885,7 +939,7 @@ mod tests {
     }
 
     #[test]
-    fn prometheus_encode() {
+    fn encode_to_prometheus() {
         let mut analyzer = Analyzer::new();
         analyzer.add_default_auditors();
         let mut registry = Registry::default();
@@ -920,5 +974,16 @@ mod tests {
         assert!(buffer.contains("# TYPE retransmit_secs_avg gauge"));
         assert!(buffer.contains("retransmit_secs_avg 4.5"));
         assert!(buffer.contains("# EOF"));
+    }
+
+    #[tokio::test]
+    async fn http_encode_to_json() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let result = analyzer.http_encode_to_json().await;
+        assert!(result.is_ok());
+        let body = to_bytes(result.unwrap().into_body()).await.unwrap();
+        let body = body.as_str();
+        assert_json!(body, { "opcode_boot_replies_percent": 0.0 });
     }
 }

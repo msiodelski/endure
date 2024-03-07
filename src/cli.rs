@@ -59,6 +59,9 @@ enum Commands {
         /// Enables the REST API on [http-address]/api endpoint.
         #[arg(long, action)]
         api: bool,
+        /// Enables server sent events (SSE).
+        #[arg(long, action)]
+        sse: bool,
     },
 }
 
@@ -85,6 +88,7 @@ impl Cli {
                     report_interval,
                     prometheus,
                     api,
+                    sse,
                 } => {
                     // Create the dispatcher to multiplex tasks.
                     let mut dispatcher = dispatcher::Dispatcher::new();
@@ -99,15 +103,16 @@ impl Cli {
                         }
                     }
                     // Make sure the HTTP server address has been specified if we want to
-                    // export the metrics to Prometheus or expose the API.
-                    if (prometheus || api) && http_address == None {
-                        eprintln!("http_address is required to enable Prometheus export and/or API endpoint");
+                    // export the metrics to Prometheus, expose the API or SSE.
+                    if (prometheus || api || sse) && http_address.is_none() {
+                        eprintln!("http_address is required to enable Prometheus export, API endpoint and/or events");
                         exit(128);
                     }
                     // Conditionally enable an export to Prometheus and/or API.
                     dispatcher.http_server_address = http_address;
                     dispatcher.enable_prometheus = prometheus;
                     dispatcher.enable_api = api;
+                    dispatcher.enable_sse = sse;
                     // Conditionally enable periodic CSV reports.
                     dispatcher.csv_output =
                         csv_output.map(|csv_output| match csv_output.as_str() {
