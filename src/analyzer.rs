@@ -17,9 +17,6 @@ use serde::{Deserialize, Serialize};
 
 use simple_moving_average::*;
 
-/// A default length of the Ethernet frame, IP and UDP headers together.
-const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
-
 /// A single record held in the [`MovingRanks`] container.
 ///
 /// It contains an identifier, score and the age of the given rank.
@@ -467,13 +464,14 @@ impl Analyzer {
         match packet.filter {
             Some(filter) => match filter.get_proto() {
                 Some(listener::Proto::Bootp) => {
-                    // We are assuming that it is an Ethernet frame, which is fine for
-                    // most cases. In this case the DHCP payload starts at the offset
-                    // of 42 which is a sum of the Ethernet, IP and UDP headers.
-                    if packet.data.len() > ETHERNET_IP_UDP_HEADER_LENGTH {
-                        let packet =
-                            v4::ReceivedPacket::new(&packet.data[ETHERNET_IP_UDP_HEADER_LENGTH..]);
-                        self.audit_dhcpv4(&packet);
+                    let packet_payload = packet.payload();
+                    match packet_payload {
+                        Ok(packet_payload) => {
+                            let packet_payload = v4::ReceivedPacket::new(&packet_payload);
+                            self.audit_dhcpv4(&packet_payload);
+                        }
+                        // For now we ignore unsupported data links or truncated packets.
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -713,11 +711,13 @@ impl DHCPv4PacketAuditor for RetransmissionAuditor {
 mod tests {
     use actix_web::{body::to_bytes, web::Bytes};
     use assert_json::assert_json;
+    use pcap::{Linktype, PacketHeader};
     use prometheus_client::{encoding::text::encode, registry::Registry};
 
     use super::{Analyzer, DHCPv4Report, MovingRanks, OpCodeAuditor, RoundedSMA};
     use crate::{
         analyzer::RetransmissionAuditor,
+        listener::{self, PacketWrapper},
         proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
     };
 
@@ -841,6 +841,105 @@ mod tests {
         let report = DHCPv4Report::default();
         let json = report.to_json();
         assert_json!(json.as_ref(), { "opcode_boot_replies_percent": 0.0 });
+    }
+
+    #[test]
+    fn receive_dhcp4_packet_ethernet() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let mut packet_wrapper = PacketWrapper {
+            filter: Some(listener::Filter::new().bootp(10067)),
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::ETHERNET,
+        };
+        // The packet is now filled with zeros. Set the first byte of the payload
+        // to 1. It makes the packet a BootRequest. If it is successfully audited
+        // we should see the metrics to be bumped up.
+        packet_wrapper.data[listener::ETHERNET_IP_UDP_HEADER_LENGTH] = 1;
+        analyzer.receive(packet_wrapper);
+        let report = analyzer.current_dhcpv4_report();
+        assert_eq!(100.0, report.opcode_boot_requests_percent);
+    }
+
+    #[test]
+    fn receive_dhcp4_packet_loopback() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let mut packet_wrapper = PacketWrapper {
+            filter: Some(listener::Filter::new().bootp(10067)),
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::NULL,
+        };
+        // The packet is now filled with zeros. Set the first byte of the payload
+        // to 1. It makes the packet a BootRequest. If it is successfully audited
+        // we should see the metrics to be bumped up.
+        packet_wrapper.data[listener::LOOPBACK_IP_UDP_HEADER_LENGTH] = 1;
+        analyzer.receive(packet_wrapper);
+        let report = analyzer.current_dhcpv4_report();
+        assert_eq!(100.0, report.opcode_boot_requests_percent);
+    }
+
+    #[test]
+    fn receive_dhcp4_packet_non_matching_filter() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let mut packet_wrapper = PacketWrapper {
+            filter: Some(listener::Filter::new().udp()),
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::ETHERNET,
+        };
+        packet_wrapper.data[listener::ETHERNET_IP_UDP_HEADER_LENGTH] = 1;
+        analyzer.receive(packet_wrapper);
+        let report = analyzer.current_dhcpv4_report();
+        // The packet shouldn't be analyzed and the metrics should not
+        // be updated.
+        assert_eq!(0.0, report.opcode_boot_requests_percent);
+    }
+
+    #[test]
+    fn receive_dhcp4_packet_truncated() {
+        let mut analyzer = Analyzer::new();
+        analyzer.add_default_auditors();
+        let packet_wrapper = PacketWrapper {
+            filter: Some(listener::Filter::new().udp()),
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 15],
+            data_link: Linktype::ETHERNET,
+        };
+        analyzer.receive(packet_wrapper);
+        let report = analyzer.current_dhcpv4_report();
+        assert_eq!(0.0, report.opcode_boot_requests_percent);
     }
 
     #[test]
