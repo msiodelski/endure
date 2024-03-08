@@ -51,7 +51,7 @@ enum Commands {
         #[arg(short, long)]
         csv_output: Option<String>,
         /// Specifies the interval at which the periodic metrics report is generated.
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..))]
         report_interval: Option<u64>,
         /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
         #[arg(long, action)]
