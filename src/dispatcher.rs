@@ -266,14 +266,10 @@ impl Dispatcher {
     ///   CSV writer.
     /// - `writer` - a CSV writer instance in one of the two possible variants
     ///   (i.e., [`Writer<stdout>`] or [`Writer<File>`]).
-    fn conditionally_enable_csv_reports<T>(
-        &self,
-        analyzer: Arc<Mutex<Analyzer>>,
-        mut writer: Writer<T>,
-    ) where
+    fn enable_csv_reports<T>(&self, analyzer: Arc<Mutex<Analyzer>>, mut writer: Writer<T>)
+    where
         T: std::io::Write + Send + 'static,
     {
-        let event_gateway = self.event_gateway.clone();
         let mut interval = tokio::time::interval(time::Duration::from_secs(self.report_interval));
         let report_future = async move {
             loop {
@@ -283,6 +279,26 @@ impl Dispatcher {
                 // Write the CSV report into a file or stdout.
                 writer.serialize(report.clone()).unwrap();
                 let _ = writer.flush();
+
+                interval.reset();
+            }
+        };
+        tokio::spawn(report_future);
+    }
+
+    /// Enables generation of the periodic metrics report over SSE.
+    ///
+    /// # Parameters
+    ///
+    /// - `analyzer` - an analyzer instance providing the metrics for the
+    ///   CSV writer.
+    fn enable_sse_reports(&self, analyzer: Arc<Mutex<Analyzer>>) {
+        let event_gateway = self.event_gateway.clone();
+        let mut interval = tokio::time::interval(time::Duration::from_secs(self.report_interval));
+        let report_future = async move {
+            loop {
+                interval.tick().await;
+                let report = { analyzer.lock().unwrap().current_dhcpv4_report() };
 
                 // If the SSE is enabled, let's also return the report to the SSE subscribers.
                 let event = Event::new(sse::EventType::PeriodicReport)
@@ -334,7 +350,7 @@ impl Dispatcher {
         if let Some(csv_output) = &self.csv_output {
             match csv_output {
                 // Write to stdout.
-                CsvOutputType::Stdout => self.conditionally_enable_csv_reports(
+                CsvOutputType::Stdout => self.enable_csv_reports(
                     analyzer.clone(),
                     WriterBuilder::new().has_headers(true).from_writer(stdout()),
                 ),
@@ -343,7 +359,7 @@ impl Dispatcher {
                     let writer = WriterBuilder::new().has_headers(true).from_path(csv_output);
                     match writer {
                         Ok(writer) => {
-                            self.conditionally_enable_csv_reports(analyzer.clone(), writer)
+                            self.enable_csv_reports(analyzer.clone(), writer)
                         }
                         Err(_) => {
                             return Err(DispatchError::CsvWriterError(
@@ -353,6 +369,10 @@ impl Dispatcher {
                     }
                 }
             }
+        }
+        // Check if the user enabled capturing metrics reports over SSE.
+        if self.enable_sse {
+            self.enable_sse_reports(analyzer.clone());
         }
         // Schedule packets capturing.
         let receive_future = async move {
