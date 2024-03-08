@@ -358,9 +358,7 @@ impl Dispatcher {
                 CsvOutputType::File(csv_output) => {
                     let writer = WriterBuilder::new().has_headers(true).from_path(csv_output);
                     match writer {
-                        Ok(writer) => {
-                            self.enable_csv_reports(analyzer.clone(), writer)
-                        }
+                        Ok(writer) => self.enable_csv_reports(analyzer.clone(), writer),
                         Err(_) => {
                             return Err(DispatchError::CsvWriterError(
                                 writer.err().unwrap().to_string(),

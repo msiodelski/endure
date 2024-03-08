@@ -2,16 +2,43 @@
 //! or multiple interfaces and return the received packets over the callbacks
 //! mechanism to a caller.
 
-use pcap::{Capture, PacketHeader};
+use futures::executor::block_on;
+use pcap::{Capture, Linktype, PacketHeader};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use thiserror::Error;
 use tokio::sync::mpsc::Sender;
 
-use futures::executor::block_on;
+/// A default length of the Ethernet frame, IP and UDP headers together.
+pub const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
+
+/// A default length of the local loopback frame, IP and UDP headers together.
+pub const LOOPBACK_IP_UDP_HEADER_LENGTH: usize = 32;
+
+/// Represents errors returned by the [`PacketWrapper::payload`].
+#[derive(Debug, Error, PartialEq)]
+pub enum PacketDataError {
+    /// An error returned when parsing a packet with an unsupported data link type.
+    #[error("unsupported data link type: {data_link:?}")]
+    UnsupportedLinkType {
+        /// Packet data link type.
+        data_link: Linktype,
+    },
+    /// An error returned when parsed packet is truncated.
+    #[error("truncated packet with data link type: {data_link:?}, length: {packet_length:?}, expected minimum length: {payload_offset:?}")]
+    TruncatedPacket {
+        /// Packet data link type.
+        data_link: Linktype,
+        /// Parsed packet length.
+        packet_length: usize,
+        /// Expected payload offset (e.g., for DHCP it is the DHCP message offset after UDP header).
+        payload_offset: usize,
+    },
+}
 
 /// Encapsulates the captured packet.
 ///
-/// It holds a copy of the packet header and data received as [pcap::Packet].
+/// It holds a copy of the packet header and data received as [`pcap::Packet`].
 /// We cannot use the [pcap::Packet] directly because it contains references
 /// to the header and data, which have short lifetime. In addition, the wrapper
 /// contains the filter instance, so the dispatcher can differentiate the
@@ -24,6 +51,37 @@ pub struct PacketWrapper {
     pub header: PacketHeader,
     /// Packet payload.
     pub data: Vec<u8>,
+    /// Data link type.
+    pub data_link: Linktype,
+}
+
+impl PacketWrapper {
+    /// Returns packet payload.
+    pub fn payload(&self) -> Result<&[u8], PacketDataError> {
+        match self.data_link {
+            Linktype::ETHERNET => {
+                if self.data.len() <= ETHERNET_IP_UDP_HEADER_LENGTH {
+                    return Err(PacketDataError::TruncatedPacket {
+                        data_link: Linktype::ETHERNET,
+                        packet_length: self.data.len(),
+                        payload_offset: ETHERNET_IP_UDP_HEADER_LENGTH,
+                    });
+                }
+                Ok(&self.data[ETHERNET_IP_UDP_HEADER_LENGTH..])
+            }
+            Linktype::NULL | Linktype::LOOP => {
+                if self.data.len() <= LOOPBACK_IP_UDP_HEADER_LENGTH {
+                    return Err(PacketDataError::TruncatedPacket {
+                        data_link: Linktype::NULL,
+                        packet_length: self.data.len(),
+                        payload_offset: LOOPBACK_IP_UDP_HEADER_LENGTH,
+                    });
+                }
+                Ok(&self.data[LOOPBACK_IP_UDP_HEADER_LENGTH..])
+            }
+            data_link => Err(PacketDataError::UnsupportedLinkType { data_link }),
+        }
+    }
 }
 
 /// Packet listener capturing packets from a single interface.
@@ -188,6 +246,7 @@ impl State for Inactive {
                     header: packet.header.clone(),
                     data: packet.data.to_vec(),
                     filter: filter.clone(),
+                    data_link: capture.get_datalink(),
                 };
                 let locked_sender = sender.lock();
                 match locked_sender {
@@ -357,7 +416,11 @@ impl Clone for Filter {
 
 #[cfg(test)]
 mod tests {
-    use crate::listener::{Filter, Proto};
+    use pcap::{Linktype, PacketHeader};
+
+    use crate::listener::{Filter, PacketDataError, Proto};
+
+    use super::PacketWrapper;
 
     #[test]
     fn filter_new() {
@@ -413,5 +476,134 @@ mod tests {
         assert_eq!(filter.proto, Some(Proto::TCP));
         assert_eq!(filter.port, None);
         assert_eq!(filter.to_text(), "tcp");
+    }
+
+    #[test]
+    fn packet_payload_eth() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::ETHERNET,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(payload.is_ok());
+        let payload = payload.unwrap();
+        assert_eq!(58, payload.len());
+    }
+
+    #[test]
+    fn packet_payload_eth_truncated() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 42],
+            data_link: Linktype::ETHERNET,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(matches!(
+            payload.unwrap_err(),
+            PacketDataError::TruncatedPacket { .. }
+        ));
+    }
+
+    #[test]
+    fn packet_payload_null() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::NULL,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(payload.is_ok());
+        let payload = payload.unwrap();
+        assert_eq!(68, payload.len());
+    }
+
+    #[test]
+    fn packet_payload_null_truncated() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 10],
+            data_link: Linktype::NULL,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(matches!(
+            payload.unwrap_err(),
+            PacketDataError::TruncatedPacket { .. }
+        ));
+    }
+
+    #[test]
+    fn packet_payload_loop() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 100],
+            data_link: Linktype::LOOP,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(payload.is_ok());
+        let payload = payload.unwrap();
+        assert_eq!(68, payload.len());
+    }
+
+    #[test]
+    fn packet_payload_loop_truncated() {
+        let packet_wrapper = PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; 10],
+            data_link: Linktype::LOOP,
+        };
+        let payload = packet_wrapper.payload();
+        assert!(matches!(
+            payload.unwrap_err(),
+            PacketDataError::TruncatedPacket { .. }
+        ));
     }
 }
