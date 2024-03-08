@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Support for capturing the bootp packets on the local loopback
+  interface.
+  (Github #33, #35).
+
 * Enabled server sent events (SSE) endpoint returning periodic
   metrics reports.
   (Github #29, #31).
