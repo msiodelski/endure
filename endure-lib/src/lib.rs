@@ -1,4 +1,5 @@
-//! endure is a DHCP diagnostics tool.
+//! endure-lib is a common library for `endure`, a DHCP
+//! diagnostics tool.
 
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
@@ -12,17 +13,4 @@
 #![deny(rustdoc::unescaped_backticks)]
 #![deny(rustdoc::redundant_explicit_links)]
 
-use clap::Parser;
-use cli::Cli;
-
-pub mod analyzer;
-pub mod cli;
-pub mod dispatcher;
-pub mod proto;
-pub mod sse;
-
-#[tokio::main]
-async fn main() {
-    let cli = Cli::parse();
-    cli.run();
-}
+pub mod listener;
