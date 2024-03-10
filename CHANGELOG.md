@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Implemented basic CLI system tests. Specification of the
+  interface name is now required.
+  (Github #36, #38).
+
 * Support for capturing the bootp packets on the local loopback
   interface.
   (Github #33, #35).
