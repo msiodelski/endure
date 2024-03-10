@@ -366,7 +366,8 @@ impl Dispatcher {
 
         // Open a channel to receive the packets captured by the listeners in
         // the threads.
-        let mut rx = self.listener_pool
+        let mut rx = self
+            .listener_pool
             .run()
             .await
             .map_err(|err| DispatchError::CaptureError {
@@ -400,8 +401,8 @@ mod tests {
 
     use crate::analyzer::Analyzer;
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
-    use crate::dispatcher::{CsvOutputType, RegistryWrapper};
     use crate::dispatcher::Dispatcher;
+    use crate::dispatcher::{CsvOutputType, RegistryWrapper};
     use endure_lib::listener::{self, Filter};
 
     trait BodyTest {
