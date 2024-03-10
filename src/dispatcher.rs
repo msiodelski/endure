@@ -22,7 +22,6 @@
 //! ```
 
 use std::{
-    collections::HashMap,
     io::stdout,
     sync::{Arc, Mutex},
 };
@@ -30,32 +29,38 @@ use std::{
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder, Result};
 use csv::{Writer, WriterBuilder};
 use prometheus_client::{encoding::text::encode, registry::Registry};
+use thiserror::Error;
 use tokio::{signal, time};
 
 use crate::{
     analyzer::Analyzer,
-    listener::{Filter, Listener, PacketWrapper},
     sse::{self, Event, EventGateway},
 };
-
-/// An enum of errors returned by the [`Dispatcher::add_listener`].
-#[derive(Debug, PartialEq)]
-pub enum ListenerError {
-    /// Returned on an attempt to add a duplicate listener.
-    ///
-    /// There must be at most one listener bound to an interface.
-    /// An attempt to bind another listener to the same interface
-    /// yields this error. It can be returned by the
-    /// [`Dispatcher::add_listener`] function.
-    AddListenerExists,
-}
+use endure_lib::listener::{self, Filter};
 
 /// An enum of errors returned by the [`Dispatcher::dispatch`]
+#[derive(Debug, Error)]
 pub enum DispatchError {
-    /// Returned when starting an HTTP server failed.
-    HttpServerError(std::io::Error),
     /// Returned when opening a file writer for CSV reports fails.
-    CsvWriterError(String),
+    #[error("failed to open the {path:?} file for writing: {details:?}")]
+    CsvWriterError {
+        /// Path to the file.
+        path: String,
+        /// Error details.
+        details: String,
+    },
+    /// Returned when starting an HTTP server failed.
+    #[error("failed to start an HTTP service: {details:?}")]
+    HttpServerError {
+        /// Error details.
+        details: String,
+    },
+    /// Returned when starting a traffic capture on an interface failed.
+    #[error("starting the traffic capture failed: {details:?}")]
+    CaptureError {
+        /// Error details.
+        details: String,
+    },
 }
 
 /// An HTTP handler for exposing the metrics to Prometheus.
@@ -124,7 +129,7 @@ impl RegistryWrapper {
 
 /// Runs the installed listeners until the stop signal occurs.
 pub struct Dispatcher {
-    listeners: HashMap<String, Listener>,
+    listener_pool: listener::ListenerPool,
 
     event_gateway: Arc<EventGateway>,
 
@@ -162,7 +167,7 @@ impl Dispatcher {
     /// the listeners using the [`Dispatcher::add_listener`] function.
     pub fn new() -> Dispatcher {
         Dispatcher {
-            listeners: HashMap::new(),
+            listener_pool: listener::ListenerPool::new(),
             event_gateway: Arc::new(EventGateway::new()),
             http_server_address: None,
             csv_output: None,
@@ -177,23 +182,17 @@ impl Dispatcher {
     ///
     /// The listener is installed for the specific device (i.e., interface).
     /// If there is another listener installed for this device already
-    /// it returns [`ListenerError::AddListenerExists`] error.
+    /// it returns [`listener::ListenerAddError::ListenerExists`] error.
     ///
-    /// The [Filter] applies filtering rules for packets capturing. For example,
+    /// The [`Filter`] applies filtering rules for packets capturing. For example,
     /// it can be used to filter only BOOTP packets, only UDP packets, select
     /// port number etc.
     pub fn add_listener(
         &mut self,
         interface_name: &str,
         filter: &Filter,
-    ) -> Result<(), ListenerError> {
-        if self.listeners.contains_key(interface_name) {
-            return Err(ListenerError::AddListenerExists);
-        }
-        let mut listener = Listener::new(interface_name);
-        listener.filter(filter);
-        self.listeners.insert(interface_name.to_string(), listener);
-        Ok(())
+    ) -> Result<(), listener::ListenerAddError> {
+        self.listener_pool.add_listener(interface_name, filter)
     }
 
     /// Starts an HTTP server enabling an endpoint for Prometheus.
@@ -322,15 +321,6 @@ impl Dispatcher {
     /// - runs an HTTP service exporting metrics to the external entities (like Prometheus),
     /// - generates periodic tasks such as writing periodic reports.
     pub async fn dispatch(mut self) -> Result<(), DispatchError> {
-        // Open a channel to receive the packets captured by the listeners in
-        // the threads.
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<PacketWrapper>(100);
-        let tx = Arc::new(Mutex::new(tx));
-        // Open the listeners. The listeners use the tx side of the channel to
-        // send the received packets to the main thread.
-        for listener in &mut self.listeners {
-            listener.1.start(Arc::clone(&tx));
-        }
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
         let mut analyzer = Analyzer::new();
@@ -340,7 +330,9 @@ impl Dispatcher {
         // user has specified the metrics endpoint address.
         let result = self.conditionally_start_http_server(analyzer.clone());
         if result.is_err() {
-            return Err(DispatchError::HttpServerError(result.err().unwrap()));
+            return Err(DispatchError::HttpServerError {
+                details: result.err().unwrap().to_string(),
+            });
         }
 
         // Check if the user has specified the output location for the CSV reports.
@@ -356,15 +348,14 @@ impl Dispatcher {
                 ),
                 // Write to a file.
                 CsvOutputType::File(csv_output) => {
-                    let writer = WriterBuilder::new().has_headers(true).from_path(csv_output);
-                    match writer {
-                        Ok(writer) => self.enable_csv_reports(analyzer.clone(), writer),
-                        Err(_) => {
-                            return Err(DispatchError::CsvWriterError(
-                                writer.err().unwrap().to_string(),
-                            ))
-                        }
-                    }
+                    let writer = WriterBuilder::new()
+                        .has_headers(true)
+                        .from_path(csv_output)
+                        .map_err(|err| DispatchError::CsvWriterError {
+                            path: csv_output.clone(),
+                            details: err.to_string(),
+                        })?;
+                    self.enable_csv_reports(analyzer.clone(), writer);
                 }
             }
         }
@@ -372,6 +363,16 @@ impl Dispatcher {
         if self.enable_sse {
             self.enable_sse_reports(analyzer.clone());
         }
+
+        // Open a channel to receive the packets captured by the listeners in
+        // the threads.
+        let mut rx = self.listener_pool
+            .run()
+            .await
+            .map_err(|err| DispatchError::CaptureError {
+                details: err.to_string(),
+            })?;
+
         // Schedule packets capturing.
         let receive_future = async move {
             loop {
@@ -400,8 +401,8 @@ mod tests {
     use crate::analyzer::Analyzer;
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
-    use crate::dispatcher::{Dispatcher, ListenerError::AddListenerExists};
-    use crate::listener::Filter;
+    use crate::dispatcher::Dispatcher;
+    use endure_lib::listener::{self, Filter};
 
     trait BodyTest {
         fn as_str(&self) -> &str;
@@ -416,7 +417,6 @@ mod tests {
     #[test]
     fn new_dispatcher() {
         let dispatcher = Dispatcher::new();
-        assert_eq!(0, dispatcher.listeners.len());
         assert!(dispatcher.http_server_address.is_none());
         assert!(dispatcher.csv_output.is_none());
         assert_eq!(10, dispatcher.report_interval);
@@ -427,15 +427,11 @@ mod tests {
         let mut dispatcher = Dispatcher::new();
         let filter = Filter::new().udp();
         assert_eq!(dispatcher.add_listener("lo", &filter), Ok(()));
-        assert_eq!(
-            dispatcher.add_listener("lo", &Filter::new()),
-            Err(AddListenerExists)
-        );
+        assert!(matches!(
+            dispatcher.add_listener("lo", &Filter::new()).unwrap_err(),
+            listener::ListenerAddError::ListenerExists { .. }
+        ));
         assert_eq!(dispatcher.add_listener("lo0", &Filter::new()), Ok(()));
-        assert_eq!(dispatcher.listeners.len(), 2);
-        assert!(dispatcher.listeners.contains_key("lo"));
-        assert!(dispatcher.listeners.contains_key("lo0"));
-        assert!(!dispatcher.listeners.contains_key("bridge"));
     }
 
     #[tokio::test]

@@ -5,10 +5,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Mutex, RwLock};
 use std::{fmt::Debug, sync::Arc};
 
-use crate::{
-    listener::{self, PacketWrapper},
-    proto::{bootp::OpCode, dhcp::v4},
-};
+use endure_lib::listener::{self, PacketWrapper};
+
+use crate::proto::{bootp::OpCode, dhcp::v4};
 
 use actix_web::HttpResponse;
 use chrono::{DateTime, Local};
@@ -717,9 +716,9 @@ mod tests {
     use super::{Analyzer, DHCPv4Report, MovingRanks, OpCodeAuditor, RoundedSMA};
     use crate::{
         analyzer::RetransmissionAuditor,
-        listener::{self, PacketWrapper},
         proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
     };
+    use endure_lib::listener::{self, PacketWrapper};
 
     trait BodyTest {
         fn as_str(&self) -> &str;

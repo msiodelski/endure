@@ -15,10 +15,9 @@
 
 use std::process::exit;
 
-use crate::{
-    dispatcher::{self, CsvOutputType},
-    listener::Filter,
-};
+use crate::dispatcher::{self, CsvOutputType};
+use endure_lib::listener::Filter;
+
 use clap::{Parser, Subcommand};
 use futures::executor::block_on;
 
@@ -41,7 +40,7 @@ enum Commands {
     /// network interface.
     Collect {
         /// Interface name.
-        #[arg(short, long)]
+        #[arg(short, long, required = true)]
         interface_name: Vec<String>,
         /// Address and port where the program opens an HTTP server and exposes REST API and Prometheus exporter are bound.
         #[arg(short = 'a', long)]
@@ -97,9 +96,23 @@ impl Cli {
                     // Bind to the specified interfaces.
                     for interface_name in interface_names.iter() {
                         let result = dispatcher.add_listener(interface_name.as_str(), &filter);
-                        if result.is_err() {
-                            eprintln!("specified the same interface multiple names");
+                        if let Some(err) = result.err() {
+                            eprintln!("{}", err.to_string());
                             exit(128);
+                        }
+                    }
+                    match http_address {
+                        None => {
+                            if prometheus || api || sse {
+                                eprintln!("'http_address' is required when using '--prometheus', '--api' or '--sse flags");
+                                exit(128);
+                            }
+                        }
+                        Some(_) => {
+                            if !prometheus && !api && !sse {
+                                eprintln!("'http_address' is only valid with '--prometheus', '--api' and '--sse' flags");
+                                exit(128);
+                            }
                         }
                     }
                     // Make sure the HTTP server address has been specified if we want to
@@ -126,15 +139,8 @@ impl Cli {
                     // Run the dispatcher. It may fail starting the HTTP server or a CSV writer.
                     let result = block_on(dispatcher.dispatch());
                     match result {
-                        Err(dispatcher::DispatchError::HttpServerError(err)) => {
-                            eprintln!("failed to start an HTTP server: {}", err);
-                            exit(128);
-                        }
-                        Err(dispatcher::DispatchError::CsvWriterError(err)) => {
-                            eprintln!(
-                                "failed to open a CSV file for the periodic metrics reports: {}",
-                                err
-                            );
+                        Err(err) => {
+                            eprintln!("{}", err.to_string());
                             exit(128);
                         }
                         _ => exit(0),
