@@ -571,7 +571,6 @@ impl Collector for Analyzer {
         )?;
         gauge.encode(metric_encoder)?;
 
-
         let gauge = Gauge::<f64, AtomicU64>::default();
         gauge.set(last_report.opcode_boot_requests_percent);
         let metric_encoder = encoder.encode_descriptor(
@@ -1123,12 +1122,10 @@ mod tests {
         assert!(buffer.contains(
             "# HELP opcode_boot_requests_total Total number of the BootRequest messages."
         ));
-        assert!(buffer.contains(
-            "# HELP opcode_boot_replies_total Total number of the BootReply messages."
-        ));
-        assert!(buffer.contains(
-            "# HELP opcode_boot_replies_total Total number of the invalid messages."
-        ));
+        assert!(buffer
+            .contains("# HELP opcode_boot_replies_total Total number of the BootReply messages."));
+        assert!(buffer
+            .contains("# HELP opcode_boot_replies_total Total number of the invalid messages."));
         assert!(buffer.contains(
             "# HELP opcode_boot_requests_percent Percentage of the BootRequest messages."
         ));

@@ -19,7 +19,11 @@ fn cli_interface_name_unspecified() -> Result<(), Box<dyn std::error::Error>> {
 fn cli_interface_name_not_exists() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
-    cmd.arg("collect").arg("-i").arg("unusual_interface_name");
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("unusual_interface_name")
+        .arg("-c")
+        .arg("stdout");
     cmd.assert().failure().stderr(predicate::str::contains(
         "starting the traffic capture failed: \"libpcap error: No such device exists\"",
     ));
@@ -34,7 +38,9 @@ fn cli_interface_name_repeated() -> Result<(), Box<dyn std::error::Error>> {
         .arg("-i")
         .arg("foo")
         .arg("--interface-name")
-        .arg("foo");
+        .arg("foo")
+        .arg("-c")
+        .arg("stdout");
     cmd.assert().failure().stderr(predicate::str::contains(
         "specified the same interface \"foo\" multiple names",
     ));
@@ -48,7 +54,9 @@ fn cli_loopback_interface_name_collision() -> Result<(), Box<dyn std::error::Err
     cmd.arg("collect")
         .arg("--loopback")
         .arg("--interface-name")
-        .arg("foo");
+        .arg("foo")
+        .arg("-c")
+        .arg("stdout");
     cmd.assert().failure().stderr(predicate::str::contains(
         "the argument '--loopback' cannot be used with '--interface-name <INTERFACE_NAME>'",
     ));
@@ -66,6 +74,27 @@ fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> 
         ),
     );
     Ok(())
+}
+
+#[test]
+#[ignore]
+fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
+    let loopback_name = Listener::loopback_name();
+    match loopback_name {
+        Some(loopback_name) => {
+            let mut cmd = Command::cargo_bin("endure")?;
+            cmd.arg("collect").arg("-i").arg(loopback_name.clone());
+            cmd.assert().failure().stderr(
+                predicate::str::contains("the following required arguments were not provided").and(
+                    predicate::str::contains(
+                        "<--csv-output <CSV_OUTPUT>|--prometheus|--api|--sse>",
+                    ),
+                ),
+            );
+            Ok(())
+        }
+        None => Ok(()),
+    }
 }
 
 #[test]
@@ -140,7 +169,9 @@ fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> 
             cmd.arg("collect")
                 .arg("-i")
                 .arg(loopback_name.clone())
-                .arg("--api");
+                .arg("--api")
+                .arg("-c")
+                .arg("stdout");
             cmd.assert().failure().stderr(predicate::str::contains(
                 "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
             ));
@@ -161,7 +192,9 @@ fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn s
                 .arg("-i")
                 .arg(loopback_name.clone())
                 .arg("-a")
-                .arg("127.0.0.1:8090");
+                .arg("127.0.0.1:8090")
+                .arg("-c")
+                .arg("stdout");
             cmd.assert().failure().stderr(predicate::str::contains(
                 "'http_address' is only valid with '--prometheus', '--api' and '--sse' flags",
             ));
