@@ -42,6 +42,20 @@ fn cli_interface_name_repeated() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn cli_loopback_interface_name_collision() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+
+    cmd.arg("collect")
+        .arg("--loopback")
+        .arg("--interface-name")
+        .arg("foo");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "the argument '--loopback' cannot be used with '--interface-name <INTERFACE_NAME>'",
+    ));
+    Ok(())
+}
+
+#[test]
 fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 

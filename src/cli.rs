@@ -16,7 +16,7 @@
 use std::process::exit;
 
 use crate::dispatcher::{self, CsvOutputType};
-use endure_lib::listener::Filter;
+use endure_lib::listener::{self, Filter};
 
 use clap::{Parser, Subcommand};
 use futures::executor::block_on;
@@ -40,9 +40,13 @@ enum Commands {
     /// network interface.
     Collect {
         /// Interface name.
-        #[arg(short, long, required = true)]
+        #[arg(short, long, group = "interface", required = true)]
         interface_name: Vec<String>,
-        /// Address and port where the program opens an HTTP server and exposes REST API and Prometheus exporter are bound.
+        #[arg(long, group = "interface", action)]
+        /// Enables listening on the loopback interface. It is an alias for -l [loopback-inteface-name].
+        loopback: bool,
+        /// Address and port where the program opens an HTTP server and exposes REST API
+        /// and Prometheus exporter are bound.
         #[arg(short = 'a', long)]
         http_address: Option<String>,
         /// File location where the metrics should be periodically written in the CSV format.
@@ -50,8 +54,8 @@ enum Commands {
         #[arg(short, long)]
         csv_output: Option<String>,
         /// Specifies the interval at which the periodic metrics report is generated.
-        #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..))]
-        report_interval: Option<u64>,
+        #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..), default_value_t = 5)]
+        report_interval: u64,
         /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
         #[arg(long, action)]
         prometheus: bool,
@@ -81,7 +85,8 @@ impl Cli {
         if let Some(commands) = args.commands {
             match commands {
                 Commands::Collect {
-                    interface_name: interface_names,
+                    interface_name: mut interface_names,
+                    loopback,
                     http_address,
                     csv_output,
                     report_interval,
@@ -89,6 +94,12 @@ impl Cli {
                     api,
                     sse,
                 } => {
+                    // Check if the loopback interface has been explicitly.
+                    if loopback {
+                        if let Some(loopback_name) = listener::Listener::loopback_name() {
+                            interface_names.push(loopback_name)
+                        }
+                    }
                     // Create the dispatcher to multiplex tasks.
                     let mut dispatcher = dispatcher::Dispatcher::new();
                     // Only filter the BOOTP and DHCPv4 messages.
@@ -132,10 +143,9 @@ impl Cli {
                             "stdout" => CsvOutputType::Stdout,
                             _ => CsvOutputType::File(csv_output),
                         });
-                    // Set non-default interval for the periodic report.
-                    if let Some(report_interval) = report_interval {
-                        dispatcher.report_interval = report_interval;
-                    }
+                    // Set interval for the periodic report.
+                    dispatcher.report_interval = report_interval;
+
                     // Run the dispatcher. It may fail starting the HTTP server or a CSV writer.
                     let result = block_on(dispatcher.dispatch());
                     match result {
