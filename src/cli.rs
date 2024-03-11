@@ -18,7 +18,7 @@ use std::process::exit;
 use crate::dispatcher::{self, CsvOutputType};
 use endure_lib::listener::{self, Filter};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use futures::executor::block_on;
 
 /// A structure holding parsed program arguments.
@@ -39,33 +39,51 @@ enum Commands {
     /// This command runs a traffic capture and analysis on the specified
     /// network interface.
     Collect {
-        /// Interface name.
-        #[arg(short, long, group = "interface", required = true)]
-        interface_name: Vec<String>,
-        #[arg(long, group = "interface", action)]
-        /// Enables listening on the loopback interface. It is an alias for -l [loopback-inteface-name].
-        loopback: bool,
+        #[command(flatten)]
+        interfaces: InterfaceArgs,
         /// Address and port where the program opens an HTTP server and exposes REST API
         /// and Prometheus exporter are bound.
         #[arg(short = 'a', long)]
         http_address: Option<String>,
-        /// File location where the metrics should be periodically written in the CSV format.
-        /// Use stdout to write the metrics to the console.
-        #[arg(short, long)]
-        csv_output: Option<String>,
         /// Specifies the interval at which the periodic metrics report is generated.
         #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..), default_value_t = 5)]
         report_interval: u64,
-        /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
-        #[arg(long, action)]
-        prometheus: bool,
-        /// Enables the REST API on [http-address]/api endpoint.
-        #[arg(long, action)]
-        api: bool,
-        /// Enables server sent events (SSE).
-        #[arg(long, action)]
-        sse: bool,
+        #[command(flatten)]
+        reporting: ReportingArgs,
     },
+}
+
+#[derive(Args)]
+#[group(multiple = false, required = true)]
+struct InterfaceArgs {
+    /// Interface name.
+    #[arg(short, long)]
+    interface_name: Vec<String>,
+    #[arg(long, action)]
+    /// Enables listening on the loopback interface. It is an alias for -l [loopback-inteface-name].
+    loopback: bool,
+}
+
+/// A group of parameters pertaining to the reporting method selection.
+///
+/// At least one of these parameters is required. Multiple parameters
+/// from the group are accepted.
+#[derive(Args)]
+#[group(multiple = true, required = true)]
+struct ReportingArgs {
+    /// File location where the metrics should be periodically written in the CSV format.
+    /// Use stdout to write the metrics to the console.
+    #[arg(short, long)]
+    csv_output: Option<String>,
+    /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
+    #[arg(long, action)]
+    prometheus: bool,
+    /// Enables the REST API on [http-address]/api endpoint.
+    #[arg(long, action)]
+    api: bool,
+    /// Enables server sent events (SSE).
+    #[arg(long, action)]
+    sse: bool,
 }
 
 impl Cli {
@@ -85,14 +103,20 @@ impl Cli {
         if let Some(commands) = args.commands {
             match commands {
                 Commands::Collect {
-                    interface_name: mut interface_names,
-                    loopback,
+                    interfaces:
+                        InterfaceArgs {
+                            interface_name: mut interface_names,
+                            loopback,
+                        },
                     http_address,
-                    csv_output,
                     report_interval,
-                    prometheus,
-                    api,
-                    sse,
+                    reporting:
+                        ReportingArgs {
+                            csv_output,
+                            prometheus,
+                            api,
+                            sse,
+                        },
                 } => {
                     // Check if the loopback interface has been explicitly.
                     if loopback {
