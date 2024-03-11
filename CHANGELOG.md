@@ -1,7 +1,8 @@
 # ChangeLog
 
 * Implemented basic CLI system tests. Specification of the
-  interface name is now required.
+  interface name is now required. Added the --loopback switch
+  for convenient selection of a loopback interface.
   (Github #36, #38).
 
 * Support for capturing the bootp packets on the local loopback
