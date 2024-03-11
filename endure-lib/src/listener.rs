@@ -753,10 +753,11 @@ mod tests {
         let filter = Filter::new().udp();
         assert_eq!(listener_pool.add_listener("lo", &filter), Ok(()));
         assert!(matches!(
-            listener_pool.add_listener("lo", &Filter::new()).unwrap_err(),
+            listener_pool
+                .add_listener("lo", &Filter::new())
+                .unwrap_err(),
             ListenerAddError::ListenerExists { .. }
         ));
         assert_eq!(listener_pool.add_listener("lo0", &Filter::new()), Ok(()));
     }
-
 }

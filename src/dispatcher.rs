@@ -171,7 +171,7 @@ impl Dispatcher {
             event_gateway: Arc::new(EventGateway::new()),
             http_server_address: None,
             csv_output: None,
-            report_interval: 10,
+            report_interval: 0,
             enable_prometheus: false,
             enable_api: false,
             enable_sse: false,
@@ -420,7 +420,7 @@ mod tests {
         let dispatcher = Dispatcher::new();
         assert!(dispatcher.http_server_address.is_none());
         assert!(dispatcher.csv_output.is_none());
-        assert_eq!(10, dispatcher.report_interval);
+        assert_eq!(0, dispatcher.report_interval);
     }
 
     #[test]
