@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Added new metrics `opcode_boot_requests_total`,
+  `opcode_boot_replies_total` and `opcode_invalid_total`.
+  (Github #39, #40).
+
 * Implemented basic CLI system tests. Specification of the
   interface name is now required. Added the --loopback switch
   for convenient selection of a loopback interface.
