@@ -25,13 +25,20 @@ The resulting binary can be found in the `endure/target/release` directory.
 
 ### Running the Utility
 
-To run the utility and start listening on interfaces `bridge101` and `bridge102` run the following command:
+Suppose your DHCP server is responding to the traffic on the interfaces `bridge101` and `bridge102`.
+You can start monitoring the server with the following command:
 
 ```
-$ endure collect -i bridge101 -i bridge102
+$ endure collect -i bridge101 -i bridge102 -c stdout
 ```
 
-You can specify as many interfaces as needed using the `-i` flag. Sometimes the DHCP servers operate on several interfaces.
+The `-c stdout` argument configures the program to output collected metrics into the console periodically.
+
+Listening on the local loopback interface has no practical application in production, however it may be useful for testing purposes. The `--loopback` switch is an alias for the `-i [loopback name]` (e.g., `-i lo`). However, the `--loopback` argument cannot be combined with `-i`.
+
+```
+$ endure collect --loopback -c stdout
+```
 
 ### Metrics
 
@@ -39,6 +46,9 @@ Endure is a new project with limited capabilities. However, it can already colle
 
 | Metric | Description |
 |--------|-------------|
+|`opcode_boot_requests_count`|A total number of `BootRequest` packets|
+|`opcode_boot_replies_count`|A total number of `BootRequest` packets|
+|`opcode_invalid_count`|A total number of invalid packets (having invalid `OpCode`)|
 |`opcode_boot_requests_percent`|A percentage of `BootRequest` packets|
 |`opcode_boot_replies_percent`|A percentage of the `BootReply` packets|
 |`opcode_invalid_percent`|A percentage of neither request nor reply packets|
@@ -46,9 +56,9 @@ Endure is a new project with limited capabilities. However, it can already colle
 |`retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
 |`retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
 
-The above metrics are calculated as a moving average from the last 100 packets.
+The above percentage metrics are calculated as a moving average from the last 100 packets.
 
-The metrics are printed periodically into the `stdout` in the CSV format. It is the easiest format to generate and parse. Other formats, integration with databases will be available in the future releases.
+The metrics can be reported over several different channels: CSV write to a file or console, export to [Prometheus](prometheus.io), [Server Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events), or the REST API. Consult the [User's Manual](https://github.com/msiodelski/endure/wiki/User-Manual-(endure)) for details.
 
 ### License
 
