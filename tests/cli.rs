@@ -1,5 +1,4 @@
 use assert_cmd::prelude::*;
-use endure_lib::listener::Listener;
 use predicates::prelude::*;
 use std::process::Command;
 
@@ -79,169 +78,109 @@ fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> 
 #[test]
 #[ignore]
 fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect").arg("-i").arg(loopback_name.clone());
-            cmd.assert().failure().stderr(
-                predicate::str::contains("the following required arguments were not provided").and(
-                    predicate::str::contains(
-                        "<--csv-output <CSV_OUTPUT>|--prometheus|--api|--sse>",
-                    ),
-                ),
-            );
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect").arg("-i").arg("foo");
+    cmd.assert().failure().stderr(
+        predicate::str::contains("the following required arguments were not provided").and(
+            predicate::str::contains("<--csv-output <CSV_OUTPUT>|--prometheus|--api|--sse>"),
+        ),
+    );
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("-a")
-                .arg("127.0.0.1:")
-                .arg("--sse");
-            cmd.assert().failure().stderr(predicate::str::contains(
-                "failed to start an HTTP service: \"invalid port value\"",
-            ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-a")
+        .arg("127.0.0.1:")
+        .arg("--sse");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "failed to start an HTTP service: \"invalid port value\"",
+    ));
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("--sse");
-            cmd.assert().failure().stderr(predicate::str::contains(
-                "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
-            ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect").arg("-i").arg("foo").arg("--sse");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
+    ));
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("--prometheus");
-            cmd.assert().failure().stderr(predicate::str::contains(
-                "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
-            ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect").arg("-i").arg("foo").arg("--prometheus");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
+    ));
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("--api")
-                .arg("-c")
-                .arg("stdout");
-            cmd.assert().failure().stderr(predicate::str::contains(
-                "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
-            ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("--api")
+        .arg("-c")
+        .arg("stdout");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "'http_address' is required when using '--prometheus', '--api' or '--sse flags",
+    ));
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("-a")
-                .arg("127.0.0.1:8090")
-                .arg("-c")
-                .arg("stdout");
-            cmd.assert().failure().stderr(predicate::str::contains(
-                "'http_address' is only valid with '--prometheus', '--api' and '--sse' flags",
-            ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-a")
+        .arg("127.0.0.1:8090")
+        .arg("-c")
+        .arg("stdout");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "'http_address' is only valid with '--prometheus', '--api' and '--sse' flags",
+    ));
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("-r")
-                .arg("0");
-            cmd.assert().failure().stderr(predicate::str::contains(
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect").arg("-i").arg("foo").arg("-r").arg("0");
+    cmd.assert().failure().stderr(predicate::str::contains(
                 "invalid value '0' for '--report-interval <REPORT_INTERVAL>': 0 is not in 1..18446744073709551615"
             ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    Ok(())
 }
 
 #[test]
 #[ignore]
 fn cli_csv_output_non_existing() -> Result<(), Box<dyn std::error::Error>> {
-    let loopback_name = Listener::loopback_name();
-    match loopback_name {
-        Some(loopback_name) => {
-            let mut cmd = Command::cargo_bin("endure")?;
-            cmd.arg("collect")
-                .arg("-i")
-                .arg(loopback_name.clone())
-                .arg("-c")
-                .arg("/tmp/non-existing/file");
-            cmd.assert().failure().stderr(predicate::str::contains(
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-c")
+        .arg("/tmp/non-existing/file");
+    cmd.assert().failure().stderr(predicate::str::contains(
                 "failed to open the \"/tmp/non-existing/file\" file for writing: \"No such file or directory (os error 2)\""
             ));
-            Ok(())
-        }
-        None => Ok(()),
-    }
+    Ok(())
 }
