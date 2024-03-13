@@ -124,7 +124,7 @@ impl HAddr {
     /// # Parameters
     ///
     /// - `htype` is a hardware type
-    /// - `data` is a variable length buffer holding the harware address
+    /// - `data` is a variable length buffer holding the hardware address
     pub fn new(htype: HType, data: Vec<u8>) -> HAddr {
         HAddr { htype, data }
     }

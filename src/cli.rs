@@ -1,4 +1,4 @@
-//! cli is a module definining and handling the command line arguments
+//! cli is a module defining and handling the command line arguments
 //! of the `endure` program.
 //!
 //! All new arguments and commands should be specified in this module.

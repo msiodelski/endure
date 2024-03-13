@@ -8,7 +8,7 @@
 //! # Example Usage
 //!
 //! The following snippet shows how to initialize and run the dispatcher
-//! to capture DHCPv4 traffic on the bridge100 interface:
+//! to capture DHCPv4 traffic on the `bridge100` interface:
 //!
 //! ```rust
 //! let mut dispatcher = dispatcher::Dispatcher::new();
@@ -98,7 +98,7 @@ struct RegistryWrapper {
 
 impl RegistryWrapper {
     /// Creates a wrapper instance and registers an [`Analyzer`] as
-    /// a cutom collector.
+    /// a custom collector.
     fn new(analyzer: Analyzer) -> Self {
         let mut registry = Registry::default();
         registry.register_collector(Box::new(analyzer));

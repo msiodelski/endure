@@ -377,7 +377,7 @@ impl DHCPv4Report {
     ///
     /// # Errors
     ///
-    /// Any occurence of the serialization error is unlikely in the well
+    /// Any occurrence of the serialization error is unlikely in the well
     /// defined structure like this one, and is an implementation error.
     /// Thus, errors are swallowed.
     pub fn to_json(&self) -> String {

@@ -35,7 +35,7 @@ pub enum BufferError {
         read_length: usize,
     },
     #[error("unknown error while reading from the packet buffer")]
-    /// An unkown IO error during the buffer read.
+    /// An unknown IO error during the buffer read.
     Unknown,
 }
 
