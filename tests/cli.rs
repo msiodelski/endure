@@ -76,7 +76,6 @@ fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-#[ignore]
 fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo");
@@ -89,7 +88,6 @@ fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-#[ignore]
 fn cli_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
@@ -105,7 +103,6 @@ fn cli_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-#[ignore]
 fn cli_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("--sse");
@@ -116,7 +113,6 @@ fn cli_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-#[ignore]
 fn cli_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("--prometheus");
@@ -127,7 +123,6 @@ fn cli_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-#[ignore]
 fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
@@ -143,7 +138,6 @@ fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-#[ignore]
 fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
@@ -160,7 +154,6 @@ fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn s
 }
 
 #[test]
-#[ignore]
 fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("-r").arg("0");
@@ -171,7 +164,6 @@ fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-#[ignore]
 fn cli_csv_output_non_existing() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
