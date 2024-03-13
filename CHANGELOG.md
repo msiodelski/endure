@@ -1,5 +1,7 @@
 # ChangeLog
 
+## Release v0.2.0 (Mar 13th, 2024)
+
 * Added new metrics `opcode_boot_requests_total`,
   `opcode_boot_replies_total` and `opcode_invalid_total`.
   (Github #39, #40).
