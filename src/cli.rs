@@ -130,7 +130,7 @@ impl Cli {
                     let filter = Filter::new().bootp_server_relay();
                     // Bind to the specified interfaces.
                     for interface_name in interface_names.iter() {
-                        let result = dispatcher.add_listener(interface_name.as_str(), &filter);
+                        let result = dispatcher.add_listener(interface_name.as_str(), filter);
                         if let Some(err) = result.err() {
                             eprintln!("{}", err.to_string());
                             exit(128);

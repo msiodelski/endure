@@ -1,14 +1,20 @@
 //! `listener` is a module providing a function to efficiently listen on one
-//! or multiple interfaces and return the received packets over the callbacks
-//! mechanism to a caller.
+//! or multiple interfaces and return the received packets over the common
+//! channel to a caller.
 
-use async_trait::async_trait;
-use futures::executor::block_on;
-use pcap::{Capture, Linktype, PacketHeader};
+use futures::StreamExt;
+use pcap::{Capture, Linktype, Packet, PacketCodec, PacketHeader, PacketStream};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::marker::PhantomData;
+use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{
+    sync::{
+        mpsc::{Receiver, Sender},
+        Mutex,
+    },
+    task::JoinHandle,
+};
 
 /// A default length of the Ethernet frame, IP and UDP headers together.
 pub const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
@@ -37,10 +43,10 @@ pub enum PacketDataError {
     },
 }
 
-/// Encapsulates the captured packet.
+/// Encapsulates a captured packet.
 ///
 /// It holds a copy of the packet header and data received as [`pcap::Packet`].
-/// We cannot use the [pcap::Packet] directly because it contains references
+/// We cannot use the [`pcap::Packet`] directly because it contains references
 /// to the header and data, which have short lifetime. In addition, the wrapper
 /// contains the filter instance, so the dispatcher can differentiate the
 /// packets by the protocol and process it in a protocol-specific manner.
@@ -85,129 +91,36 @@ impl PacketWrapper {
     }
 }
 
-/// An enum of errors returned by the [`ListenerPool::add_listener`].
-#[derive(Debug, Error, PartialEq)]
-pub enum ListenerAddError {
-    /// Returned on an attempt to add a duplicate listener.
-    ///
-    /// There must be at most one listener bound to an interface.
-    /// An attempt to bind another listener to the same interface
-    /// yields this error. It can be returned by the
-    /// [`ListenerPool::add_listener`] function.
-    #[error("specified the same interface {interface_name:?} multiple names")]
-    ListenerExists {
-        /// An interface name.
-        interface_name: String,
-    },
-}
-
-/// Pool of the packet listeners.
+/// [`PacketWrapper`] codec.
 ///
-/// It holds a collection of the listeners capturing a traffic on
-/// different interfaces. The received packets are sent over the channel
-/// to the main thread for processing.
-#[derive(Default)]
-pub struct ListenerPool {
-    listeners: HashMap<String, Listener>,
+/// It is used to convert packets received from the capture stream to
+/// the [`PacketWrapper`] instance that can be consumed by the packet
+/// analyzers.
+struct PacketWrapperCodec {
+    filter: Option<Filter>,
+    data_link: Linktype,
 }
 
-impl ListenerPool {
-    /// Instantiates the [`ListenerPool`].
-    pub fn new() -> Self {
-        ListenerPool::default()
-    }
-
-    /// Attempts to add a listener for a device.
-    ///
-    /// The listener is installed for the specific device (i.e., interface).
-    /// If there is another listener installed for this device already
-    /// it returns [`ListenerAddError::ListenerExists`] error.
-    ///
-    /// The [Filter] applies filtering rules for packets capturing. For example,
-    /// it can be used to filter only BOOTP packets, only UDP packets, select
-    /// port number etc.
-    pub fn add_listener(
-        &mut self,
-        interface_name: &str,
-        filter: &Filter,
-    ) -> Result<(), ListenerAddError> {
-        if self.listeners.contains_key(interface_name) {
-            return Err(ListenerAddError::ListenerExists {
-                interface_name: interface_name.to_string(),
-            });
+impl PacketWrapperCodec {
+    fn new(filter: Option<Filter>, data_link: Linktype) -> Self {
+        Self {
+            filter: filter,
+            data_link: data_link,
         }
-        let mut listener = Listener::new(interface_name);
-        listener.filter(filter);
-        self.listeners.insert(interface_name.to_string(), listener);
-        Ok(())
-    }
-
-    /// Starts all registered listeners.
-    ///
-    /// It spawns a new thread for each listener.
-    ///
-    /// # Result
-    ///
-    /// It returns a receiver of the channel that the threads are using to
-    /// notify about the received packets. Use this receiver to receive the
-    /// packets captured on all interfaces.
-    ///
-    /// # Errors
-    ///
-    /// This function may return the [`pcap::Error`] when there is a problem
-    /// opening any of the captures. Typically, an error is returned when the
-    /// specified interface doesn't exist or the program has insufficient
-    /// privileges to run the traffic capture.
-    pub async fn run(&mut self) -> Result<Receiver<PacketWrapper>, pcap::Error> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<PacketWrapper>(100);
-        let tx = Arc::new(Mutex::new(tx));
-        // Open the listeners. The listeners use the tx side of the channel to
-        // send the received packets to the main thread.
-        for listener in &mut self.listeners {
-            listener.1.start(Arc::clone(&tx)).await?;
-        }
-        Ok(rx)
     }
 }
 
-/// A trait for a listener's state.
-///
-/// A listener can be in [Inactive] or [Active] state.
-#[async_trait]
-trait State {
-    /// Applies the filter to be used for capturing the packets.
-    ///
-    /// # Arguments
-    ///
-    /// - `packet_filter` - a packet filter instance used for capturing
-    ///   a specific type of the packets.
-    ///
-    /// # Usage Note
-    ///
-    /// A filter is only applied when the listener is in the [Inactive]
-    /// state.
-    fn filter(self: Box<Self>, packet_filter: &Filter) -> Box<dyn State>;
+impl PacketCodec for PacketWrapperCodec {
+    type Item = PacketWrapper;
 
-    /// Starts the listener thread if not started yet.
-    ///
-    /// # Arguments
-    ///
-    /// - `sender` - sender side of the channel to provide the captured
-    ///   packets to the main thread.
-    ///
-    /// # Usage Note
-    ///
-    /// When the listener has already been started calling this function
-    /// has no effect.
-    ///
-    /// # Errors
-    ///
-    /// The function may return a [`pcap::Error`] when starting the capture
-    /// failed.
-    async fn start(
-        self: Box<Self>,
-        sender: Arc<Mutex<Sender<PacketWrapper>>>,
-    ) -> Result<Box<dyn State>, pcap::Error>;
+    fn decode(&mut self, packet: Packet) -> Self::Item {
+        PacketWrapper {
+            header: packet.header.clone(),
+            data: packet.data.to_vec(),
+            filter: self.filter,
+            data_link: self.data_link,
+        }
+    }
 }
 
 /// An enum of protocols used for filtering.
@@ -232,7 +145,7 @@ pub enum Proto {
 ///
 /// Filter::new().udp().port(10067);
 /// ```
-#[derive(Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Filter {
     proto: Option<Proto>,
     port: Option<u16>,
@@ -240,18 +153,15 @@ pub struct Filter {
 
 impl Filter {
     /// Instantiates an empty packet filter.
-    pub fn new() -> Filter {
-        Filter {
-            proto: None,
-            port: None,
-        }
+    pub fn new() -> Self {
+        Filter::default()
     }
 
     /// Creates a filter for capturing BOOTP packets sent to a relay or server.
     ///
     /// It sets a default port 67 used by the BOOTP servers and relays. In test
     /// labs, the servers can sometimes run on a different port. In this case,
-    /// use the [Filter::bootp] function instead. It allows for specifying a
+    /// use the [`Filter::bootp`] function instead. It allows for specifying a
     /// custom port number.
     pub fn bootp_server_relay(self) -> Filter {
         self.bootp(67)
@@ -286,7 +196,7 @@ impl Filter {
     ///
     /// It sets a default port 547 used by the DHCPv6 servers and relays. In test
     /// labs, the servers can sometimes run on a different port. In this case,
-    /// use the [Filter::dhcp_v6] function instead. It allows for specifying a
+    /// use the [`Filter::dhcp_v6`] function instead. It allows for specifying a
     /// custom port number.
     pub fn dhcp_v6_server_relay(self) -> Filter {
         Filter {
@@ -354,7 +264,7 @@ impl Filter {
     ///
     /// The returned value can be used directly in the [pcap] library
     /// to set the filtering program.
-    pub fn to_text(&self) -> String {
+    pub fn to_string(&self) -> String {
         let mut filter_text: String = String::new();
         if let Some(proto) = &self.proto {
             match proto {
@@ -372,48 +282,240 @@ impl Filter {
     }
 }
 
-impl Clone for Filter {
-    fn clone(&self) -> Filter {
-        Filter {
-            proto: self.proto.clone(),
-            port: self.port.clone(),
-        }
+/// An enum of errors returned by the [`ListenerPool::add_listener`].
+#[derive(Debug, Error, PartialEq)]
+pub enum ListenerAddError {
+    /// Returned on an attempt to add a duplicate listener.
+    ///
+    /// There must be at most one listener bound to an interface.
+    /// An attempt to bind another listener to the same interface
+    /// yields this error. It can be returned by the
+    /// [`ListenerPool::add_listener`] function.
+    #[error("specified the same interface {interface_name:?} multiple names")]
+    ListenerExists {
+        /// An interface name.
+        interface_name: String,
+    },
+}
+
+/// Pool of the packet listeners.
+///
+/// It holds a collection of the listeners capturing traffic on
+/// different interfaces. The received packets are sent over the channel
+/// to the main thread for processing.
+#[derive(Default)]
+pub struct ListenerPool {
+    listeners: HashMap<String, Listener<Inactive>>,
+}
+
+impl ListenerPool {
+    /// Instantiates the [`ListenerPool`].
+    pub fn new() -> Self {
+        Self::default()
     }
+
+    /// Attempts to add a listener for a device.
+    ///
+    /// The listener is installed for the specific device (i.e., interface).
+    /// If there is another listener installed for this device already
+    /// it returns [`ListenerAddError::ListenerExists`] error.
+    ///
+    /// The [`Filter`] applies filtering rules for packets capturing. For example,
+    /// it can be used to filter only BOOTP packets, only UDP packets, select
+    /// port number etc.
+    pub fn add_listener(
+        &mut self,
+        interface_name: &str,
+        filter: Filter,
+    ) -> Result<(), ListenerAddError> {
+        if self.listeners.contains_key(interface_name) {
+            return Err(ListenerAddError::ListenerExists {
+                interface_name: interface_name.to_string(),
+            });
+        }
+        let listener = Listener::from_iface(interface_name).with_filter(filter);
+        self.listeners.insert(interface_name.to_string(), listener);
+        Ok(())
+    }
+
+    /// Starts all registered listeners.
+    ///
+    /// It spawns a new thread for each listener.
+    ///
+    /// # Result
+    ///
+    /// It returns a receiver of the channel that the threads are using to
+    /// notify about the received packets. Use this receiver to receive the
+    /// packets captured on all interfaces.
+    ///
+    /// # Errors
+    ///
+    /// This function may return the [`pcap::Error`] when there is a problem
+    /// opening any of the captures. Typically, an error is returned when the
+    /// specified interface doesn't exist or the program has insufficient
+    /// privileges to run the traffic capture.
+    pub async fn run(self) -> Result<Receiver<PacketWrapper>, pcap::Error> {
+        let (tx, rx) = tokio::sync::mpsc::channel::<PacketWrapper>(100);
+        let tx = Arc::new(Mutex::new(tx));
+        // Open the listeners. The listeners use the tx side of the channel to
+        // send the received packets to the main thread.
+        for listener in self.listeners {
+            listener.1.start(Arc::clone(&tx)).await?;
+        }
+        Ok(rx)
+    }
+}
+
+/// A trait matching all possible states for a listener.
+pub trait State {}
+
+/// Active listener state.
+#[derive(Debug)]
+pub enum Active {}
+
+/// Inactive listener state.
+#[derive(Debug)]
+pub enum Inactive {}
+
+impl State for Active {}
+impl State for Inactive {}
+
+/// Represents errors during capturing packets in [`Listener::start`].
+///
+/// These errors indicate non-recoverable conditions for the packet capture
+/// from a device and terminate the capture for this device.
+#[derive(Debug, Error, PartialEq)]
+pub enum ListenerError {
+    /// An error returned when capturing a packet from stream failed.
+    #[error("attempt to receive next packet from the stream failed: {details:?}")]
+    ReadStream {
+        /// Error details.
+        details: String,
+    },
+
+    /// An error returned when sending the received packet over the
+    /// channel for processing failed.
+    #[error("sending received packet over for processing failed: {details:?}")]
+    SendPacket {
+        /// Error details.
+        details: String,
+    },
 }
 
 /// Packet listener capturing packets from a single interface.
 ///
 /// The listener is stateful. It can be in one of the two states:
-/// - Inactive - the listener is not capturing the packets and can be configured.
-/// - Active - the listener is capturing the packets.
+/// - `Inactive` - the listener is not capturing the packets and can be configured.
+/// - `Active` - the listener is capturing the packets.
 ///
 /// There can be at most one listener instance for each interface.
-///
-/// # Issues with Stopping the Listener
-///
-/// A started listener can't be stopped. Its thread performs the blocking
-/// calls to receive packets. In the initial program version, we tried to
-/// set a timeout on the capture to break the blocking calls, but didn't work
-/// on the Linux systems using `TPACKET_V3`. See
-/// <https://www.tcpdump.org/faq.html#q15> for details.
-pub struct Listener {
-    state: Option<Box<dyn State>>,
+#[derive(Debug)]
+pub struct Listener<T: State> {
+    /// Name of the interface from which the packets are captured.
+    interface_name: String,
+    /// A filter to be used in packets capturing.
+    filter: Option<Filter>,
+    join_handle: Option<JoinHandle<Result<(), ListenerError>>>,
+    _marker: PhantomData<T>,
 }
 
-impl Listener {
+impl Listener<Inactive> {
     /// Creates a new listener instance for the specified interface.
     ///
     /// # Arguments
     ///
     /// `interface_name` - name of the interface on which the listener should
     /// capture the packets.
-    pub fn new(interface_name: &str) -> Listener {
-        Listener {
-            state: Some(Box::new(Inactive {
-                interface_name: interface_name.to_string(),
-                filter: None,
-            })),
+    pub fn from_iface(interface_name: &str) -> Self {
+        Self {
+            interface_name: interface_name.to_string(),
+            filter: None,
+            join_handle: None,
+            _marker: PhantomData,
         }
+    }
+
+    /// Adds a capture filter to the listener.
+    ///
+    /// # Arguments
+    ///
+    /// - `packet_filter` - a packet filter instance used for capturing
+    ///   a specific type of the packets.
+    pub fn with_filter(self, packet_filter: Filter) -> Self {
+        Self {
+            interface_name: self.interface_name,
+            filter: Some(packet_filter),
+            join_handle: None,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Runs a loop capturing packets from a stream.
+    async fn capture_packets(
+        mut stream: PacketStream<pcap::Active, PacketWrapperCodec>,
+        sender: Arc<Mutex<Sender<PacketWrapper>>>,
+    ) -> Result<(), ListenerError> {
+        while let Some(packet) = stream.next().await {
+            match packet {
+                Ok(packet) => sender.lock().await.send(packet).await.map_err(|err| {
+                    ListenerError::SendPacket {
+                        details: err.to_string(),
+                    }
+                })?,
+                Err(err) => {
+                    return Err(ListenerError::ReadStream {
+                        details: err.to_string(),
+                    })
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Starts the listener.
+    ///
+    /// It applies the specified filter and spawns an asynchronous packet capture.
+    /// The returned [`Listener<Active>`] instance contains a join handle that can
+    /// be used to await the capture.
+    ///
+    /// # Arguments
+    ///
+    /// The `sender` instance is a sender side of a channel that the listener should use to
+    /// provide the received packets to the caller. The caller is responsible for
+    /// creating the sender and the receiver instance. It is safe to share the same
+    /// sender between multiple threads. Typically, there is only one receiver instance
+    /// collecting the packets from several threads.
+    ///
+    /// # Errors
+    ///
+    /// The function may return a [`pcap::Error`] when starting the capture
+    /// failed. This may happen when the network device does not support
+    /// `select()`.
+    pub async fn start(
+        self,
+        sender: Arc<Mutex<Sender<PacketWrapper>>>,
+    ) -> Result<Listener<Active>, pcap::Error> {
+        let mut capture = Capture::from_device(self.interface_name.as_str())?
+            .immediate_mode(true)
+            .timeout(1000)
+            .open()?
+            .setnonblock()?;
+
+        // Optionally apply the filter.
+        if let Some(filter) = &self.filter {
+            capture.filter(filter.to_string().as_str(), false)?;
+        }
+        let data_link = capture.get_datalink();
+        let stream = capture.stream(PacketWrapperCodec::new(self.filter.clone(), data_link))?;
+
+        // Spawn the asynchronous capture.
+        let join_handle = Some(tokio::spawn(Self::capture_packets(stream, sender)));
+        Ok(Listener::<Active> {
+            interface_name: self.interface_name,
+            filter: self.filter,
+            join_handle,
+            _marker: PhantomData,
+        })
     }
 
     /// Finds a loopback interface name.
@@ -434,140 +536,32 @@ impl Listener {
             Err(_) => return None,
         }
     }
-
-    /// Adds a capture filter for the listener.
-    ///
-    /// # Arguments
-    ///
-    /// - `packet_filter` - a packet filter instance used for capturing
-    ///   a specific type of the packets.
-    pub fn filter(&mut self, packet_filter: &Filter) {
-        if let Some(s) = self.state.take() {
-            self.state = Some(s.filter(packet_filter))
-        }
-    }
-
-    /// Starts the listener.
-    ///
-    /// It applies the specified filter and spawns a new thread to capture packets.
-    /// It changes the listener's state to Active.
-    ///
-    /// # Arguments
-    ///
-    /// The `sender` instance is a sender side of a channel that the listener should use to
-    /// provide the received packets to the caller. The caller is responsible for
-    /// creating the sender and the receiver instance. It is safe to share the same
-    /// sender between multiple threads. Typically, there is only one receiver instance
-    /// collecting the packets from several threads.
-    ///
-    /// # Errors
-    ///
-    /// The function may return a [`pcap::Error`] when starting the capture
-    /// failed.
-    pub async fn start(
-        &mut self,
-        sender: Arc<Mutex<Sender<PacketWrapper>>>,
-    ) -> Result<(), pcap::Error> {
-        if let Some(s) = self.state.take() {
-            self.state = Some(s.start(sender).await?)
-        }
-        Ok(())
-    }
 }
 
-/// Represents a state of the [Listener] before it is run.
-struct Inactive {
-    /// Name of the interface from which the packets are captured.
-    interface_name: String,
-    /// A filter to be used in packets capturing.
-    filter: Option<Filter>,
-}
-
-#[async_trait]
-impl State for Inactive {
-    fn filter(self: Box<Self>, packet_filter: &Filter) -> Box<dyn State> {
-        Box::new(Inactive {
-            interface_name: self.interface_name.to_string(),
-            filter: Some(packet_filter.clone()),
-        })
-    }
-
-    async fn start(
-        self: Box<Self>,
-        sender: Arc<Mutex<Sender<PacketWrapper>>>,
-    ) -> Result<Box<dyn State>, pcap::Error> {
-        let mut capture = Capture::from_device(self.interface_name.as_str())
-            .expect("failed to open capture")
-            .timeout(1000)
-            .open()?;
-
-        if let Some(filter) = &self.filter {
-            capture
-                .filter(filter.to_text().as_str(), false)
-                .expect("failed to set filter program");
-        }
-
-        let filter = self.filter.clone();
-        let _ = tokio::task::spawn_blocking(move || loop {
-            if let Ok(packet) = capture.next_packet() {
-                let packet = PacketWrapper {
-                    header: packet.header.clone(),
-                    data: packet.data.to_vec(),
-                    filter: filter.clone(),
-                    data_link: capture.get_datalink(),
-                };
-                let locked_sender = sender.lock();
-                match locked_sender {
-                    Ok(locked_sender) => {
-                        let send_result = block_on(locked_sender.send(packet));
-                        // An error sending the packet indicates that the channel has been closed
-                        // or the receiver is no longer listening. The thread should return because
-                        // there is no way to recover.
-                        if send_result.is_err() {
-                            return;
-                        }
-                    }
-                    // If we were unable to lock the sender the channel must have been closed.
-                    // We're unable to recover from this situation.
-                    Err(_) => return,
-                }
-            }
-        });
-        Ok(Box::new(Active {}))
-    }
-}
-
-/// Represents a state of the running [Listener].
-struct Active {}
-
-#[async_trait]
-impl State for Active {
-    fn filter(self: Box<Self>, _packet_filter: &Filter) -> Box<dyn State> {
-        self
-    }
-
-    async fn start(
-        self: Box<Self>,
-        _sender: Arc<Mutex<Sender<PacketWrapper>>>,
-    ) -> Result<Box<dyn State>, pcap::Error> {
-        Ok(self)
+impl Listener<Active> {
+    /// Returns a reference to the join handle for the active listener.
+    pub fn handle(&self) -> &JoinHandle<Result<(), ListenerError>> {
+        self.join_handle.as_ref().unwrap()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use pcap::{Linktype, PacketHeader};
+    use std::sync::Arc;
+
+    use pcap::{Device, Linktype, Packet, PacketCodec, PacketHeader};
+    use tokio::sync::Mutex;
 
     use crate::listener::{Filter, ListenerAddError, ListenerPool, PacketDataError, Proto};
 
-    use super::PacketWrapper;
+    use super::{Listener, PacketWrapper, PacketWrapperCodec};
 
     #[test]
     fn filter_new() {
         let filter = Filter::new();
         assert_eq!(filter.proto, None);
         assert_eq!(filter.port, None);
-        assert_eq!(filter.to_text(), "")
+        assert_eq!(filter.to_string(), "")
     }
 
     #[test]
@@ -575,7 +569,7 @@ mod tests {
         let filter = Filter::new().bootp_server_relay();
         assert_eq!(filter.proto, Some(Proto::Bootp));
         assert_eq!(filter.port, Some(67));
-        assert_eq!(filter.to_text(), "udp port 67");
+        assert_eq!(filter.to_string(), "udp port 67");
     }
 
     #[test]
@@ -583,7 +577,7 @@ mod tests {
         let filter = Filter::new().bootp(167);
         assert_eq!(filter.proto, Some(Proto::Bootp));
         assert_eq!(filter.port, Some(167));
-        assert_eq!(filter.to_text(), "udp port 167");
+        assert_eq!(filter.to_string(), "udp port 167");
     }
 
     #[test]
@@ -591,7 +585,7 @@ mod tests {
         let filter = Filter::new().dhcp_v6_server_relay();
         assert_eq!(filter.proto, Some(Proto::DHCPv6));
         assert_eq!(filter.port, Some(547));
-        assert_eq!(filter.to_text(), "udp port 547");
+        assert_eq!(filter.to_string(), "udp port 547");
     }
 
     #[test]
@@ -599,7 +593,7 @@ mod tests {
         let filter = Filter::new().dhcp_v6(1547);
         assert_eq!(filter.proto, Some(Proto::DHCPv6));
         assert_eq!(filter.port, Some(1547));
-        assert_eq!(filter.to_text(), "udp port 1547");
+        assert_eq!(filter.to_string(), "udp port 1547");
     }
 
     #[test]
@@ -607,7 +601,7 @@ mod tests {
         let filter = Filter::new().udp();
         assert_eq!(filter.proto, Some(Proto::UDP));
         assert_eq!(filter.port, None);
-        assert_eq!(filter.to_text(), "udp");
+        assert_eq!(filter.to_string(), "udp");
     }
 
     #[test]
@@ -615,7 +609,7 @@ mod tests {
         let filter = Filter::new().tcp();
         assert_eq!(filter.proto, Some(Proto::TCP));
         assert_eq!(filter.port, None);
-        assert_eq!(filter.to_text(), "tcp");
+        assert_eq!(filter.to_string(), "tcp");
     }
 
     #[test]
@@ -748,16 +742,75 @@ mod tests {
     }
 
     #[test]
+    fn packet_wrapper_codec() {
+        let data = vec![0; 10];
+        let packet = Packet {
+            header: &PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 1,
+                    tv_usec: 2,
+                },
+                caplen: 10,
+                len: 11,
+            },
+            data: data.as_ref(),
+        };
+        let mut codec =
+            PacketWrapperCodec::new(Some(Filter::new().bootp(67)), Linktype::ATM_RFC1483);
+        let packet_wrapper = codec.decode(packet);
+        assert!(packet_wrapper.filter.is_some());
+        assert_eq!("udp port 67", packet_wrapper.filter.unwrap().to_string());
+        assert_eq!(Linktype::ATM_RFC1483, packet_wrapper.data_link);
+        assert_eq!(10, packet_wrapper.header.caplen);
+        assert_eq!(11, packet_wrapper.header.len);
+        assert_eq!(1, packet_wrapper.header.ts.tv_sec);
+        assert_eq!(2, packet_wrapper.header.ts.tv_usec);
+        assert_eq!(data, packet_wrapper.data);
+    }
+
+    #[test]
     fn add_listener() {
         let mut listener_pool = ListenerPool::new();
         let filter = Filter::new().udp();
-        assert_eq!(listener_pool.add_listener("lo", &filter), Ok(()));
+        assert_eq!(listener_pool.add_listener("lo", filter), Ok(()));
         assert!(matches!(
-            listener_pool
-                .add_listener("lo", &Filter::new())
-                .unwrap_err(),
+            listener_pool.add_listener("lo", Filter::new()).unwrap_err(),
             ListenerAddError::ListenerExists { .. }
         ));
-        assert_eq!(listener_pool.add_listener("lo0", &Filter::new()), Ok(()));
+        assert_eq!(listener_pool.add_listener("lo0", Filter::new()), Ok(()));
+    }
+
+    #[tokio::test]
+    async fn start_listener_wrong_iface_name() {
+        let listener = Listener::from_iface("non_existing_interface");
+        let (tx, _) = tokio::sync::mpsc::channel::<PacketWrapper>(100);
+        let tx = Arc::new(Mutex::new(tx));
+        let result = listener.start(tx).await;
+        assert!(result.is_err());
+        assert_eq!(
+            "libpcap error: No such device exists",
+            result.unwrap_err().to_string()
+        )
+    }
+
+    #[test]
+    #[ignore]
+    fn loopback_name() {
+        let loopback = Listener::loopback_name();
+        assert!(loopback.is_some());
+        let loopback = loopback.unwrap();
+
+        // List all devices and find the loopback.
+        let device_list = Device::list();
+        assert!(device_list.is_ok());
+
+        // Find the matching interface.
+        let device_list = device_list.unwrap();
+        let listed_loopback = device_list.iter().find(|device| device.name == loopback);
+        assert!(listed_loopback.is_some());
+
+        // Make sure it is loopback.
+        let listed_loopback = listed_loopback.unwrap();
+        assert!(listed_loopback.flags.is_loopback())
     }
 }
