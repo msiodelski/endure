@@ -190,7 +190,7 @@ impl Dispatcher {
     pub fn add_listener(
         &mut self,
         interface_name: &str,
-        filter: &Filter,
+        filter: Filter,
     ) -> Result<(), listener::ListenerAddError> {
         self.listener_pool.add_listener(interface_name, filter)
     }
@@ -320,7 +320,7 @@ impl Dispatcher {
     /// - receives the packets from the network and sends them to the analysis,
     /// - runs an HTTP service exporting metrics to the external entities (like Prometheus),
     /// - generates periodic tasks such as writing periodic reports.
-    pub async fn dispatch(mut self) -> Result<(), DispatchError> {
+    pub async fn dispatch(self) -> Result<(), DispatchError> {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
         let mut analyzer = Analyzer::new();
@@ -374,17 +374,12 @@ impl Dispatcher {
                 details: err.to_string(),
             })?;
 
-        // Schedule packets capturing.
-        let receive_future = async move {
-            loop {
-                let packet = rx.recv().await;
-                match packet {
-                    Some(packet) => analyzer.lock().unwrap().receive(packet),
-                    None => return,
-                }
+        // Receive packets from the workers of the channel.
+        tokio::spawn(async move {
+            while let Some(packet) = rx.recv().await {
+                analyzer.lock().unwrap().receive(packet)
             }
-        };
-        tokio::spawn(receive_future);
+        });
 
         // Install Ctrl-C signal handler to exit the program when it is pressed.
         let ctrl_c = signal::ctrl_c();
@@ -427,12 +422,12 @@ mod tests {
     fn add_listener() {
         let mut dispatcher = Dispatcher::new();
         let filter = Filter::new().udp();
-        assert_eq!(dispatcher.add_listener("lo", &filter), Ok(()));
+        assert_eq!(dispatcher.add_listener("lo", filter), Ok(()));
         assert!(matches!(
-            dispatcher.add_listener("lo", &Filter::new()).unwrap_err(),
+            dispatcher.add_listener("lo", Filter::new()).unwrap_err(),
             listener::ListenerAddError::ListenerExists { .. }
         ));
-        assert_eq!(dispatcher.add_listener("lo0", &Filter::new()), Ok(()));
+        assert_eq!(dispatcher.add_listener("lo0", Filter::new()), Ok(()));
     }
 
     #[tokio::test]
