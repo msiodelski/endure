@@ -36,7 +36,7 @@ use crate::{
     analyzer::Analyzer,
     sse::{self, Event, EventGateway},
 };
-use endure_lib::listener::{self, Filter};
+use endure_lib::listener::{self, Inactive, Listener};
 
 /// An enum of errors returned by the [`Dispatcher::dispatch`]
 #[derive(Debug, Error)]
@@ -184,15 +184,14 @@ impl Dispatcher {
     /// If there is another listener installed for this device already
     /// it returns [`listener::ListenerAddError::ListenerExists`] error.
     ///
-    /// The [`Filter`] applies filtering rules for packets capturing. For example,
-    /// it can be used to filter only BOOTP packets, only UDP packets, select
-    /// port number etc.
+    /// # Arguments
+    ///
+    /// - `listener` - instance of the listener to be added.
     pub fn add_listener(
         &mut self,
-        interface_name: &str,
-        filter: Filter,
+        listener: Listener<Inactive>,
     ) -> Result<(), listener::ListenerAddError> {
-        self.listener_pool.add_listener(interface_name, filter)
+        self.listener_pool.add_listener(listener)
     }
 
     /// Starts an HTTP server enabling an endpoint for Prometheus.
@@ -398,7 +397,7 @@ mod tests {
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::Dispatcher;
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
-    use endure_lib::listener::{self, Filter};
+    use endure_lib::listener::{self, Filter, Listener};
 
     trait BodyTest {
         fn as_str(&self) -> &str;
@@ -422,12 +421,18 @@ mod tests {
     fn add_listener() {
         let mut dispatcher = Dispatcher::new();
         let filter = Filter::new().udp();
-        assert_eq!(dispatcher.add_listener("lo", filter), Ok(()));
+        assert!(dispatcher
+            .add_listener(Listener::from_iface("lo").with_filter(filter))
+            .is_ok());
         assert!(matches!(
-            dispatcher.add_listener("lo", Filter::new()).unwrap_err(),
+            dispatcher
+                .add_listener(Listener::from_iface("lo").with_filter(Filter::new()))
+                .unwrap_err(),
             listener::ListenerAddError::ListenerExists { .. }
         ));
-        assert_eq!(dispatcher.add_listener("lo0", Filter::new()), Ok(()));
+        assert!(dispatcher
+            .add_listener(Listener::from_iface("lo0").with_filter(Filter::new()))
+            .is_ok());
     }
 
     #[tokio::test]

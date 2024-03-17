@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-use std::process::Command;
+use std::{fs::File, process::Command};
+use tempdir::TempDir;
 
 #[test]
 fn cli_interface_name_unspecified() -> Result<(), Box<dyn std::error::Error>> {
@@ -164,15 +165,46 @@ fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_csv_output_non_existing() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_csv_output_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
         .arg("foo")
         .arg("-c")
-        .arg("/tmp/non-existing/file");
+        .arg("/tmp/non-existing/file.csv");
     cmd.assert().failure().stderr(predicate::str::contains(
-                "failed to open the \"/tmp/non-existing/file\" file for writing: \"No such file or directory (os error 2)\""
-            ));
+        "directory \"/tmp/non-existing\" does not exist",
+    ));
+    Ok(())
+}
+
+#[test]
+fn cli_pcap_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-p")
+        .arg("/tmp/non-existing/endure/directory");
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "directory \"/tmp/non-existing/endure/directory\" does not exist",
+    ));
+    Ok(())
+}
+
+#[test]
+fn cli_directory_path_not_directory() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new("test")?;
+    let file_path = dir.path().join("tcp.pcap");
+    let _ = File::create(&file_path)?;
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-p")
+        .arg(file_path);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("tcp.pcap\" is not a directory"));
     Ok(())
 }

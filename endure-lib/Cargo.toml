@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.77"
+chrono = "0.4.35"
 futures = "0.3.30"
 pcap = { version = "1.2.0", features = ["capture-stream"] }
 thiserror = "1.0.40"
@@ -15,3 +16,4 @@ tokio = { version = "1.36.0", features = ["full"] }
 
 [dev-dependencies]
 libc = "0.2.153"
+predicates = "3.1.0"
