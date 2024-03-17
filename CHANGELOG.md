@@ -1,5 +1,8 @@
 # ChangeLog
 
+* Implemented saving packet capture files.
+  (Github #45, #46).
+
 ## Release v0.2.0 (Mar 13th, 2024)
 
 * Added new metrics `opcode_boot_requests_total`,
