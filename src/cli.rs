@@ -13,10 +13,10 @@
 //! Cli::parse().run();
 //! ```
 
-use std::process::exit;
+use std::{path::Path, process::exit};
 
 use crate::dispatcher::{self, CsvOutputType};
-use endure_lib::listener::{self, Filter};
+use endure_lib::listener::{self, Filter, Listener};
 
 use clap::{Args, Parser, Subcommand};
 use futures::executor::block_on;
@@ -31,6 +31,41 @@ use futures::executor::block_on;
 pub struct Cli {
     #[command(subcommand)]
     commands: Option<Commands>,
+}
+
+/// A parser checking if the specified path is a directory path.
+fn directory_path_parser(path: &str) -> Result<String, String> {
+    let path = Path::new(path);
+    if !path.exists() {
+        return Err(format!("directory {:?} does not exist", path));
+    }
+    if !path.is_dir() {
+        return Err(format!("{:?} is not a directory", path));
+    }
+    return Ok(path.as_os_str().to_str().unwrap().to_string());
+}
+
+/// A parser checking if the path of the specified file exists.
+///
+/// It excludes the keyword `stdout` from validation. This keyword
+/// is used to specify the console as an output for CSV reports.
+///
+/// # Result
+///
+/// It returns an error when the directory of the specified file does
+/// not exist. It doesn't run any checks when the specified value is
+/// a `stdout` keyword.
+fn directory_path_file_parser(path: &str) -> Result<String, String> {
+    if path.eq("stdout") {
+        return Ok(path.to_string());
+    }
+    let path = Path::new(path);
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err(format!("directory {:?} does not exist", parent));
+        }
+    }
+    return Ok(path.as_os_str().to_str().unwrap().to_string());
 }
 
 /// An enum that defines the supported subcommands.
@@ -50,6 +85,9 @@ enum Commands {
         report_interval: u64,
         #[command(flatten)]
         reporting: ReportingArgs,
+        /// Specifies a location of the directory where pcap files are saved.
+        #[arg(short, long, value_parser = directory_path_parser)]
+        pcap_directory: Option<String>,
     },
 }
 
@@ -73,7 +111,7 @@ struct InterfaceArgs {
 struct ReportingArgs {
     /// File location where the metrics should be periodically written in the CSV format.
     /// Use stdout to write the metrics to the console.
-    #[arg(short, long)]
+    #[arg(short, long, value_parser = directory_path_file_parser)]
     csv_output: Option<String>,
     /// Enables the metrics export to Prometheus via the [http-address]/metrics endpoint.
     #[arg(long, action)]
@@ -117,6 +155,7 @@ impl Cli {
                             api,
                             sse,
                         },
+                    pcap_directory,
                 } => {
                     // Check if the loopback interface has been explicitly.
                     if loopback {
@@ -130,7 +169,13 @@ impl Cli {
                     let filter = Filter::new().bootp_server_relay();
                     // Bind to the specified interfaces.
                     for interface_name in interface_names.iter() {
-                        let result = dispatcher.add_listener(interface_name.as_str(), filter);
+                        let mut listener =
+                            Listener::from_iface(interface_name.as_str()).with_filter(filter);
+                        // Optionally enable saving pcap files.
+                        if let Some(pcap_directory) = pcap_directory.clone() {
+                            listener = listener.save_to(pcap_directory.as_str());
+                        }
+                        let result = dispatcher.add_listener(listener);
                         if let Some(err) = result.err() {
                             eprintln!("{}", err.to_string());
                             exit(128);

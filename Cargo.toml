@@ -31,4 +31,5 @@ assert_cmd = "2.0.14"
 assert_json = "0.1.0"
 libc = "0.2.153"
 predicates = "3.1.0"
+tempdir = "0.3.7"
 
