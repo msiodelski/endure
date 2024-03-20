@@ -14,3 +14,4 @@
 #![deny(rustdoc::redundant_explicit_links)]
 
 pub mod listener;
+pub mod metric;

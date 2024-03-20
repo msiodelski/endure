@@ -33,10 +33,13 @@ use thiserror::Error;
 use tokio::{signal, time};
 
 use crate::{
-    analyzer::Analyzer,
+    analyzer::{Analyzer, AuditProfile},
     sse::{self, Event, EventGateway},
 };
-use endure_lib::listener::{self, Inactive, Listener};
+use endure_lib::{
+    listener::{self, Inactive, Listener},
+    metric::MetricsStore,
+};
 
 /// An enum of errors returned by the [`Dispatcher::dispatch`]
 #[derive(Debug, Error)]
@@ -272,11 +275,14 @@ impl Dispatcher {
         let report_future = async move {
             loop {
                 interval.tick().await;
-                let report = { analyzer.lock().unwrap().current_dhcpv4_report() };
-
                 // Write the CSV report into a file or stdout.
-                writer.serialize(report.clone()).unwrap();
-                let _ = writer.flush();
+                let _ = analyzer
+                    .lock()
+                    .unwrap()
+                    .current_dhcpv4_metrics()
+                    .write()
+                    .unwrap()
+                    .serialize_csv(&mut writer);
 
                 interval.reset();
             }
@@ -296,11 +302,17 @@ impl Dispatcher {
         let report_future = async move {
             loop {
                 interval.tick().await;
-                let report = { analyzer.lock().unwrap().current_dhcpv4_report() };
+                let metrics_store: MetricsStore = analyzer
+                    .lock()
+                    .unwrap()
+                    .current_dhcpv4_metrics()
+                    .write()
+                    .unwrap()
+                    .clone();
 
                 // If the SSE is enabled, let's also return the report to the SSE subscribers.
                 let event = Event::new(sse::EventType::PeriodicReport)
-                    .with_payload(report)
+                    .with_payload(metrics_store)
                     .unwrap();
                 let _ = event_gateway.clone().send_event(event).await;
 
@@ -323,7 +335,7 @@ impl Dispatcher {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
         let mut analyzer = Analyzer::new();
-        analyzer.add_default_auditors();
+        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamAll);
 
         // Start the HTTP server exporting the metrics to Prometheus if a
         // user has specified the metrics endpoint address.
@@ -343,12 +355,14 @@ impl Dispatcher {
                 // Write to stdout.
                 CsvOutputType::Stdout => self.enable_csv_reports(
                     analyzer.clone(),
-                    WriterBuilder::new().has_headers(true).from_writer(stdout()),
+                    WriterBuilder::new()
+                        .has_headers(false)
+                        .from_writer(stdout()),
                 ),
                 // Write to a file.
                 CsvOutputType::File(csv_output) => {
                     let writer = WriterBuilder::new()
-                        .has_headers(true)
+                        .has_headers(false)
                         .from_path(csv_output)
                         .map_err(|err| DispatchError::CsvWriterError {
                             path: csv_output.clone(),
@@ -393,7 +407,7 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::web::Bytes;
 
-    use crate::analyzer::Analyzer;
+    use crate::analyzer::{Analyzer, AuditProfile};
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::Dispatcher;
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
@@ -459,7 +473,7 @@ mod tests {
     #[tokio::test]
     async fn encode_prometheus_metrics() {
         let mut analyzer = Analyzer::new();
-        analyzer.add_default_auditors();
+        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamAll);
         let registry_wrapper = RegistryWrapper::new(analyzer);
         let result = registry_wrapper.http_encode_metrics().await;
         assert!(result.is_ok());

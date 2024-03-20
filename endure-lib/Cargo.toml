@@ -8,12 +8,19 @@ edition = "2021"
 
 [dependencies]
 async-trait = "0.1.77"
-chrono = "0.4.35"
+chrono = { version = "0.4.35", features = ["serde"] }
+csv = "1.3.0"
+endure-macros = { path = "../endure-macros" }
 futures = "0.3.30"
 pcap = { version = "1.2.0", features = ["capture-stream"] }
+prometheus-client = "0.22.1"
+serde = { version = "1.0.195", features = ["derive"] }
+serde_json = "1.0.114"
 thiserror = "1.0.40"
 tokio = { version = "1.36.0", features = ["full"] }
 
 [dev-dependencies]
+assert_json = "0.1.0"
 libc = "0.2.153"
 predicates = "3.1.0"
+csv = "1.3.0"
