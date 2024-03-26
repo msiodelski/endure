@@ -1,5 +1,12 @@
 # ChangeLog
 
+* Code refactoring required for collecting variable number of
+  metrics depending on the selected profile. It introduces no
+  new functionality to a user but is a necessary ground work
+  for the `pcap` analysis. The only visible change to the user
+  is that the metrics are now ordered alphabetically.
+  (Github #47, #48).
+
 * Implemented saving packet capture files.
   (Github #45, #46).
 
