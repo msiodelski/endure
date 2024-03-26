@@ -16,6 +16,7 @@ use clap::Parser;
 use cli::Cli;
 
 pub mod analyzer;
+pub mod auditor;
 pub mod cli;
 pub mod dispatcher;
 pub mod proto;
