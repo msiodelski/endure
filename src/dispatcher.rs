@@ -33,7 +33,8 @@ use thiserror::Error;
 use tokio::{signal, time};
 
 use crate::{
-    analyzer::{Analyzer, AuditProfile},
+    analyzer::Analyzer,
+    auditor::common::AuditProfile,
     sse::{self, Event, EventGateway},
 };
 use endure_lib::{
@@ -407,7 +408,8 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::web::Bytes;
 
-    use crate::analyzer::{Analyzer, AuditProfile};
+    use crate::analyzer::Analyzer;
+    use crate::auditor::common::AuditProfile;
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::Dispatcher;
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
