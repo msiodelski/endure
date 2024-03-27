@@ -2,15 +2,43 @@
 
 use std::fmt::Debug;
 
+use endure_lib::listener::PacketWrapper;
+
 use crate::proto::dhcp::v4;
 
 /// Capture and analysis profiles.
 #[derive(PartialEq)]
 pub enum AuditProfile {
-    /// All auditors enabled and online capture.
-    LiveStreamAll,
-    /// All auditors enabled and pcap analysis.
-    PcapAll,
+    /// All auditors enabled and online capture with moving average window.
+    LiveStreamFull,
+    /// All auditors enabled and pcap analysis with moving average window.
+    PcapStreamFull,
+}
+
+/// A trait that must be implemented by auditors running checks on unparsed
+/// packets.
+///
+/// An example auditor implementing this trait is the one that gathers
+/// timestamps of the received packets (i.e., [`super::packet_time::PacketTimeAuditor`]).
+pub trait GenericPacketAuditor: Debug + Send + Sync {
+    /// Runs an audit on the received packet.
+    ///
+    /// The audit is specific to the given auditor implementing this
+    /// trait. The auditor maintains some specific metrics gathered
+    /// from the constant analysis of the received packets. It may
+    /// discard some of the packets that don't meet the audit criteria.
+    ///
+    /// # Parameters
+    ///
+    /// - `packet` - a packet wrapper holding packet metadata.
+    fn audit(&mut self, packet: &PacketWrapper);
+
+    /// Collects metrics from the auditor in the metrics store.
+    ///
+    /// This function is called by the [`crate::analyzer::Analyzer`] for each
+    /// auditor. The auditor writes its metrics into the metrics store.
+    ///
+    fn collect_metrics(&mut self);
 }
 
 /// A trait that must be implemented by each DHCPv4 auditor.

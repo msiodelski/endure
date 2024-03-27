@@ -26,3 +26,6 @@ pub const METRIC_RETRANSMIT_SECS_AVG: &str = "retransmit_secs_avg";
 
 /// Hardware address of the longest retrying client.
 pub const METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT: &str = "retransmit_longest_trying_client";
+
+/// Timestamp of the last analyzed packet.
+pub const METRIC_PACKET_TIME_DATE_TIME: &str = "packet_time_date_time";
