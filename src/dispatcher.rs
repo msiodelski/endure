@@ -33,7 +33,8 @@ use thiserror::Error;
 use tokio::{signal, time};
 
 use crate::{
-    analyzer::{Analyzer, AuditProfile},
+    analyzer::Analyzer,
+    auditor::common::AuditProfile,
     sse::{self, Event, EventGateway},
 };
 use endure_lib::{
@@ -335,7 +336,8 @@ impl Dispatcher {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
         let mut analyzer = Analyzer::new();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamAll);
+        analyzer.add_generic_auditors(&AuditProfile::LiveStreamFull);
+        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
 
         // Start the HTTP server exporting the metrics to Prometheus if a
         // user has specified the metrics endpoint address.
@@ -407,7 +409,8 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::web::Bytes;
 
-    use crate::analyzer::{Analyzer, AuditProfile};
+    use crate::analyzer::Analyzer;
+    use crate::auditor::common::AuditProfile;
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::Dispatcher;
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
@@ -473,7 +476,7 @@ mod tests {
     #[tokio::test]
     async fn encode_prometheus_metrics() {
         let mut analyzer = Analyzer::new();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamAll);
+        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
         let registry_wrapper = RegistryWrapper::new(analyzer);
         let result = registry_wrapper.http_encode_metrics().await;
         assert!(result.is_ok());
