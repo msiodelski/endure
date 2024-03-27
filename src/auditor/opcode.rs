@@ -31,7 +31,7 @@ use super::{
 /// (i.e., neither `BootRequest` nor `BootReply`).
 ///
 #[derive(AuditProfileCheck, Clone, Debug, FromMetricsStore)]
-#[profiles(AuditProfile::LiveStreamAll, AuditProfile::PcapAll)]
+#[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct OpCodeAuditor {
     metrics_store: SharedMetricsStore,
     requests_count: i64,
@@ -165,9 +165,11 @@ mod tests {
     #[test]
     fn opcode_auditor_profiles() {
         assert!(OpCodeAuditor::has_audit_profile(
-            &AuditProfile::LiveStreamAll
+            &AuditProfile::LiveStreamFull
         ));
-        assert!(OpCodeAuditor::has_audit_profile(&AuditProfile::PcapAll));
+        assert!(OpCodeAuditor::has_audit_profile(
+            &AuditProfile::PcapStreamFull
+        ));
     }
 
     #[test]
