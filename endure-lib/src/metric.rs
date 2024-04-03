@@ -240,6 +240,25 @@ impl MetricsStore {
         self.metrics.get(metric_name).cloned()
     }
 
+    /// Returns unwrapped value of the specified metric.
+    ///
+    /// # Parameters
+    ///
+    /// - `metric_name` - metric name.
+    ///
+    /// # Errors
+    ///
+    /// This function will panic if the metric does not exist or the value
+    /// type is not matching. Therefore, this function should mainly be used
+    /// in the unit tests, not in the production code.
+    ///
+    pub fn get_metric_value_unwrapped<T>(&self, metric_name: &str) -> T
+    where
+        MetricValue: GetMetricValue<T>,
+    {
+        self.get(metric_name).unwrap().get_value_unwrapped::<T>()
+    }
+
     /// Serializes metric values into a CSV row.
     ///
     /// If [`MetricsStore::with_timestamp`] was called, the timestamps are
@@ -480,6 +499,29 @@ mod tests {
     fn metrics_store_set_value_non_existing_metric() {
         let mut store = MetricsStore::new();
         store.set_metric_value("opcode", MetricValue::Int64Value(7));
+    }
+
+    #[test]
+    fn metrics_store_get_value_unwrapped() {
+        let mut store = MetricsStore::new();
+        store.set_metric(Metric::new(
+            "opcode",
+            "opcode value",
+            MetricValue::Int64Value(7),
+        ));
+        assert_eq!(7, store.get_metric_value_unwrapped::<i64>("opcode"));
+    }
+
+    #[test]
+    #[should_panic]
+    fn metrics_store_get_value_unwrapped_invalid_type() {
+        let mut store = MetricsStore::new();
+        store.set_metric(Metric::new(
+            "opcode",
+            "opcode value",
+            MetricValue::Int64Value(7),
+        ));
+        store.get_metric_value_unwrapped::<f64>("opcode");
     }
 
     #[test]
