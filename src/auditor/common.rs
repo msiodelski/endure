@@ -2,7 +2,7 @@
 
 use std::fmt::Debug;
 
-use endure_lib::listener::PacketWrapper;
+use endure_lib::capture::PacketWrapper;
 
 use crate::proto::dhcp::v4;
 
@@ -13,6 +13,9 @@ pub enum AuditProfile {
     LiveStreamFull,
     /// All auditors enabled and pcap analysis with moving average window.
     PcapStreamFull,
+    /// All auditors enabled and pcap analysis with only final metrics
+    /// presented.
+    PcapFinalFull,
 }
 
 /// A trait that must be implemented by auditors running checks on unparsed

@@ -19,6 +19,7 @@ pub mod analyzer;
 pub mod auditor;
 pub mod cli;
 pub mod dispatcher;
+pub mod pcap_processor;
 pub mod proto;
 pub mod sse;
 

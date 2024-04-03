@@ -27,7 +27,11 @@ use endure_macros::{AuditProfileCheck, FromMetricsStore};
 /// trying to get a lease for a longest period of time in last 1000 packets.
 ///
 #[derive(AuditProfileCheck, Debug, FromMetricsStore)]
-#[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
+#[profiles(
+    AuditProfile::LiveStreamFull,
+    AuditProfile::PcapStreamFull,
+    AuditProfile::PcapFinalFull
+)]
 pub struct RetransmissionAuditor {
     metrics_store: SharedMetricsStore,
     retransmits: RoundedSMA<10, 100>,

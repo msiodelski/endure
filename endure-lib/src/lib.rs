@@ -13,5 +13,5 @@
 #![deny(rustdoc::unescaped_backticks)]
 #![deny(rustdoc::redundant_explicit_links)]
 
-pub mod listener;
+pub mod capture;
 pub mod metric;

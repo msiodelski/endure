@@ -1,10 +1,18 @@
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-use std::{fs::File, process::Command};
+use std::{fs::File, io::Read, path::PathBuf, process::Command};
 use tempdir::TempDir;
 
+/// Convenience function returning a path to a test `pcap` file.
+fn resource_path(pcap_name: &str) -> String {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/resources/pcap");
+    path.push(pcap_name);
+    path.as_os_str().to_str().unwrap().to_owned()
+}
+
 #[test]
-fn cli_interface_name_unspecified() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_interface_name_unspecified() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
     cmd.arg("collect").arg("-i");
@@ -16,7 +24,7 @@ fn cli_interface_name_unspecified() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_interface_name_not_exists() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_interface_name_not_exists() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
     cmd.arg("collect")
@@ -31,7 +39,7 @@ fn cli_interface_name_not_exists() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_interface_name_repeated() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_interface_name_repeated() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
     cmd.arg("collect")
@@ -48,7 +56,7 @@ fn cli_interface_name_repeated() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_loopback_interface_name_collision() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_loopback_interface_name_collision() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
     cmd.arg("collect")
@@ -64,7 +72,7 @@ fn cli_loopback_interface_name_collision() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
-fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
 
     cmd.arg("collect");
@@ -77,7 +85,7 @@ fn cli_interface_name_not_specified() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo");
     cmd.assert().failure().stderr(
@@ -89,7 +97,7 @@ fn cli_no_reporting() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
@@ -104,7 +112,7 @@ fn cli_address_malformed() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("--sse");
     cmd.assert().failure().stderr(predicate::str::contains(
@@ -114,7 +122,7 @@ fn cli_no_address_specified_for_sse() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-fn cli_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("--prometheus");
     cmd.assert().failure().stderr(predicate::str::contains(
@@ -124,7 +132,7 @@ fn cli_no_address_specified_for_prometheus() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
@@ -139,7 +147,8 @@ fn cli_no_address_specified_for_api() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
-fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_address_specified_no_sse_nor_prometheus_nor_api(
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
@@ -155,7 +164,7 @@ fn cli_address_specified_no_sse_nor_prometheus_nor_api() -> Result<(), Box<dyn s
 }
 
 #[test]
-fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect").arg("-i").arg("foo").arg("-r").arg("0");
     cmd.assert().failure().stderr(predicate::str::contains(
@@ -165,7 +174,7 @@ fn cli_zero_report_interval() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_csv_output_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_csv_output_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
@@ -179,7 +188,7 @@ fn cli_csv_output_directory_non_existing() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
-fn cli_pcap_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_pcap_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("endure")?;
     cmd.arg("collect")
         .arg("-i")
@@ -193,7 +202,7 @@ fn cli_pcap_directory_non_existing() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn cli_directory_path_not_directory() -> Result<(), Box<dyn std::error::Error>> {
+fn cli_collect_directory_path_not_directory() -> Result<(), Box<dyn std::error::Error>> {
     let dir = TempDir::new("test")?;
     let file_path = dir.path().join("tcp.pcap");
     let _ = File::create(&file_path)?;
@@ -206,5 +215,115 @@ fn cli_directory_path_not_directory() -> Result<(), Box<dyn std::error::Error>> 
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("tcp.pcap\" is not a directory"));
+    Ok(())
+}
+
+#[test]
+fn cli_read_csv() -> Result<(), Box<dyn std::error::Error>> {
+    // This predicate checks the CSV output presence.
+    let predicate = predicate::str::is_match("((\\S\\,)+\\S)").unwrap();
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--csv")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().success().stdout(predicate);
+    Ok(())
+}
+
+#[test]
+fn cli_read_csv_stream() -> Result<(), Box<dyn std::error::Error>> {
+    // This predicate checks the CSV output presence.
+    let predicate = predicate::str::is_match("((\\S\\,)+\\S)").unwrap();
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--csv")
+        .arg("--stream")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().success().stdout(predicate);
+    Ok(())
+}
+
+#[test]
+fn cli_read_json() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--json")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::starts_with("{"))
+        .stdout(predicate::str::ends_with("}\n"));
+    Ok(())
+}
+
+#[test]
+fn cli_read_to_file() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new("test").unwrap();
+    let report_path = dir.path().join("reports.json");
+    let report_path_str = report_path
+        .as_os_str()
+        .to_os_string()
+        .into_string()
+        .unwrap();
+
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--json")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"))
+        .arg("--output")
+        .arg(&report_path);
+    cmd.assert().success();
+
+    assert!(report_path.exists());
+    let file = File::open(report_path_str);
+    assert!(file.is_ok());
+
+    let mut file = file.unwrap();
+    let mut buf = String::new();
+    let result = file.read_to_string(&mut buf);
+    assert!(result.is_ok());
+    assert!(buf.starts_with("{"));
+    Ok(())
+}
+
+#[test]
+fn cli_read_json_stream_not_allowed() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--json")
+        .arg("--stream")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().stderr(predicate::str::contains(
+        "the argument '--stream' cannot be used with '--json'",
+    ));
+    Ok(())
+}
+
+#[test]
+fn cli_read_format_unspecified() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().stderr(
+        predicate::str::contains("the following required arguments were not provided")
+            .and(predicate::str::contains("  <--csv|--json>")),
+    );
+    Ok(())
+}
+
+#[test]
+fn cli_read_pcap_unspecified() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read").arg("--csv");
+    cmd.assert().stderr(
+        predicate::str::contains("the following required arguments were not provided")
+            .and(predicate::str::contains("  --pcap <PCAP>")),
+    );
     Ok(())
 }

@@ -38,7 +38,7 @@ use crate::{
     sse::{self, Event, EventGateway},
 };
 use endure_lib::{
-    listener::{self, Inactive, Listener},
+    capture::{self, Inactive, Listener},
     metric::MetricsStore,
 };
 
@@ -133,8 +133,10 @@ impl RegistryWrapper {
 
 /// Runs the installed listeners until the stop signal occurs.
 pub struct Dispatcher {
-    listener_pool: listener::ListenerPool,
+    /// A pool of listeners capturing the traffic.
+    listener_pool: capture::ListenerPool,
 
+    /// Common event gateway instance receiving events.
     event_gateway: Arc<EventGateway>,
 
     /// Address and port where HTTP server is bound.
@@ -171,7 +173,7 @@ impl Dispatcher {
     /// the listeners using the [`Dispatcher::add_listener`] function.
     pub fn new() -> Dispatcher {
         Dispatcher {
-            listener_pool: listener::ListenerPool::new(),
+            listener_pool: capture::ListenerPool::new(),
             event_gateway: Arc::new(EventGateway::new()),
             http_server_address: None,
             csv_output: None,
@@ -186,7 +188,7 @@ impl Dispatcher {
     ///
     /// The listener is installed for the specific device (i.e., interface).
     /// If there is another listener installed for this device already
-    /// it returns [`listener::ListenerAddError::ListenerExists`] error.
+    /// it returns [`capture::ListenerAddError::ListenerExists`] error.
     ///
     /// # Arguments
     ///
@@ -194,7 +196,7 @@ impl Dispatcher {
     pub fn add_listener(
         &mut self,
         listener: Listener<Inactive>,
-    ) -> Result<(), listener::ListenerAddError> {
+    ) -> Result<(), capture::ListenerAddError> {
         self.listener_pool.add_listener(listener)
     }
 
@@ -335,7 +337,7 @@ impl Dispatcher {
     pub async fn dispatch(self) -> Result<(), DispatchError> {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
-        let mut analyzer = Analyzer::new();
+        let mut analyzer = Analyzer::create_for_listener();
         analyzer.add_generic_auditors(&AuditProfile::LiveStreamFull);
         analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
 
@@ -414,7 +416,7 @@ mod tests {
     use crate::dispatcher::DispatchError::{CsvWriterError, HttpServerError};
     use crate::dispatcher::Dispatcher;
     use crate::dispatcher::{CsvOutputType, RegistryWrapper};
-    use endure_lib::listener::{self, Filter, Listener};
+    use endure_lib::capture::{self, Filter, Listener};
 
     trait BodyTest {
         fn as_str(&self) -> &str;
@@ -445,7 +447,7 @@ mod tests {
             dispatcher
                 .add_listener(Listener::from_iface("lo").with_filter(Filter::new()))
                 .unwrap_err(),
-            listener::ListenerAddError::ListenerExists { .. }
+            capture::ListenerAddError::ListenerExists { .. }
         ));
         assert!(dispatcher
             .add_listener(Listener::from_iface("lo0").with_filter(Filter::new()))
@@ -475,7 +477,7 @@ mod tests {
 
     #[tokio::test]
     async fn encode_prometheus_metrics() {
-        let mut analyzer = Analyzer::new();
+        let mut analyzer = Analyzer::create_for_listener();
         analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
         let registry_wrapper = RegistryWrapper::new(analyzer);
         let result = registry_wrapper.http_encode_metrics().await;

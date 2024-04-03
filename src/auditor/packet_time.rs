@@ -6,7 +6,7 @@ use super::{
 };
 use chrono::{DateTime, Local};
 use endure_lib::{
-    listener::PacketWrapper,
+    capture::PacketWrapper,
     metric::{FromMetricsStore, InitMetrics, Metric, MetricValue, SharedMetricsStore},
 };
 use endure_macros::{AuditProfileCheck, FromMetricsStore};
@@ -71,7 +71,7 @@ impl InitMetrics for PacketTimeAuditor {
 #[cfg(test)]
 mod tests {
     use endure_lib::{
-        listener::PacketWrapper,
+        capture::PacketWrapper,
         metric::{FromMetricsStore, MetricsStore},
     };
     use pcap::{Linktype, PacketHeader};
