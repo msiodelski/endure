@@ -1,6 +1,15 @@
 # ChangeLog
 
+* Implemented Dedicated `opcode` and `retransmission` auditors
+  for processing `pcap` files. They collect and display the
+  metrics from all packets in the `pcap`. Different auditors
+  are used in case of the live stream analysis and `pcap` files
+  with periodic metrics reports. These auditors collect the metrics
+  from the last 100 packets.
+ (Github #50, #51).
+
 * Enabled `pcap` file analysis with the `endure read` command.
+ (Github #37, #49).
 
 * Code refactoring required for collecting variable number of
   metrics depending on the selected profile. It introduces no
