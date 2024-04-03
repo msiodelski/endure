@@ -1,10 +1,11 @@
-//! `listener` is a module providing a function to efficiently listen on one
+//! `capture` is a module providing a function to efficiently listen on one
 //! or multiple interfaces and return the received packets over the common
-//! channel to a caller.
+//! channel to a caller. It also provides the mechanism to read packets
+//! from the `pcap` files.
 
 use chrono::Local;
 use futures::StreamExt;
-use pcap::{Capture, Linktype, Packet, PacketCodec, PacketHeader, PacketStream, Savefile};
+use pcap::{Capture, Linktype, Offline, Packet, PacketCodec, PacketHeader, PacketStream, Savefile};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -160,7 +161,7 @@ pub enum Proto {
 /// # Example Usage
 ///
 /// ```rust
-/// use endure_lib::listener::Filter;
+/// use endure_lib::capture::Filter;
 ///
 /// Filter::new().udp().port(10067);
 /// ```
@@ -191,7 +192,7 @@ impl Filter {
     /// # Usage
     ///
     /// ```rust
-    /// use endure_lib::listener::Filter;
+    /// use endure_lib::capture::Filter;
     ///
     /// Filter::new().udp().port(67);
     /// ```
@@ -199,7 +200,7 @@ impl Filter {
     /// is equivalent to:
     ///
     /// ```rust
-    /// use endure_lib::listener::Filter;
+    /// use endure_lib::capture::Filter;
     ///
     /// Filter::new().bootp_server_relay();
     /// ```
@@ -230,7 +231,7 @@ impl Filter {
     /// # Usage
     ///
     /// ```rust
-    /// use endure_lib::listener::Filter;
+    /// use endure_lib::capture::Filter;
     ///
     /// Filter::new().udp().port(547);
     /// ```
@@ -238,7 +239,7 @@ impl Filter {
     /// is equivalent to:
     ///
     /// ```rust
-    /// use endure_lib::listener::Filter;
+    /// use endure_lib::capture::Filter;
     ///
     /// Filter::new().dhcp_v6_server_relay();
     /// ```
@@ -579,13 +580,151 @@ impl Listener<Inactive> {
 
 impl Listener<Active> {}
 
+/// Represents errors during reading packets in [`Reader::<Active>::read_next`].
+///
+/// These errors indicate non-recoverable conditions for the packet capture
+/// from a device and terminate the capture for this device.
+#[derive(Debug, Error, PartialEq)]
+pub enum ReaderError {
+    /// An error returned when starting the reader failed.
+    #[error("reading pcap file: {pcap:?} failed: {details:?}")]
+    Start {
+        /// `pcap` file location.
+        pcap: String,
+        /// Error details.
+        details: String,
+    },
+    /// An error returned when setting a capture filter for a `pcap` file failed.
+    #[error("setting filter on pcap file: {pcap:?} failed: {details:?}")]
+    Filter {
+        /// `pcap` file location.
+        pcap: String,
+        /// Error details.
+        details: String,
+    },
+    /// An error returned when reading next packet failed.
+    #[error("attempt to read next packet from the file failed: {details:?}")]
+    ReadNext {
+        /// Error details.
+        details: String,
+    },
+    #[error("end of the capture file")]
+    /// An error returned when the capture file ends.
+    Eof {},
+}
+
+/// Packet reader from `pcap` files.
+///
+/// The [`Reader`] is stateful. It can be in one of the two states:
+/// - `Inactive` - the reader can be configured and is not reading a file.
+/// - `Active` - the reader is reading the packets from the `pcap` file.
+///
+pub struct Reader<T: State> {
+    pcap_path: String,
+    packet_filter: Option<Filter>,
+    capture: Option<Capture<Offline>>,
+    _marker: PhantomData<T>,
+}
+
+impl Reader<Inactive> {
+    /// Creates a new reader instance for a specified file.
+    ///
+    /// # Arguments
+    ///
+    /// `pcap_name` - name of the `pcap` file to read.
+    ///
+    pub fn from_pcap(pcap_name: &str) -> Self {
+        Self {
+            pcap_path: pcap_name.to_string(),
+            packet_filter: None,
+            capture: None,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Adds a capture filter to the reader.
+    ///
+    /// # Arguments
+    ///
+    /// - `packet_filter` - a packet filter instance used for capturing
+    ///   a specific type of the packets.
+    ///
+    pub fn with_filter(mut self, packet_filter: Filter) -> Self {
+        self.packet_filter = Some(packet_filter);
+        self
+    }
+
+    /// Starts the reader by turning it to [`Reader<Active>`].
+    pub fn start(&self) -> Result<Reader<Active>, ReaderError> {
+        let mut capture =
+            Capture::from_file(self.pcap_path.clone()).map_err(|err| ReaderError::Start {
+                pcap: self.pcap_path.clone(),
+                details: err.to_string(),
+            })?;
+
+        if let Some(filter) = self.packet_filter {
+            capture
+                .filter(filter.to_string().as_str(), false)
+                .map_err(|err| ReaderError::Filter {
+                    pcap: self.pcap_path.clone(),
+                    details: err.to_string(),
+                })?;
+        }
+
+        Ok(Reader::<Active> {
+            pcap_path: self.pcap_path.clone(),
+            packet_filter: self.packet_filter,
+            capture: Some(capture),
+            _marker: PhantomData,
+        })
+    }
+}
+
+impl Reader<Active> {
+    /// Reads next available packet from the file.
+    ///
+    /// # Result
+    ///
+    /// This function may return a [`ReaderError`] when reading the packet from
+    /// the `pcap` file fails. Otherwise, it returns a [`PacketWrapper`] instance
+    /// holding the packet data.
+    ///
+    pub fn read_next(&mut self) -> Result<PacketWrapper, ReaderError> {
+        let capture = self.capture.as_mut().unwrap();
+        let packet = capture.next_packet().map_err(|err| match err {
+            pcap::Error::NoMorePackets => ReaderError::Eof {},
+            _ => ReaderError::ReadNext {
+                details: err.to_string(),
+            },
+        })?;
+        Ok(PacketWrapper {
+            header: packet.header.clone(),
+            data: packet.data.to_vec(),
+            filter: self.packet_filter,
+            data_link: capture.get_datalink(),
+        })
+    }
+}
+
+impl<T> Reader<T>
+where
+    T: State,
+{
+    /// Returns `pcap` file path.
+    pub fn pcap_path(&self) -> String {
+        self.pcap_path.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Listener, PacketWrapper, PacketWrapperCodec};
-    use crate::listener::{Filter, ListenerAddError, ListenerPool, PacketDataError, Proto};
+    use super::{PacketWrapper, PacketWrapperCodec, Reader};
+    use crate::capture::{
+        Filter, Listener, ListenerAddError, ListenerPool, PacketDataError, Proto, ReaderError,
+    };
     use pcap::{Device, Linktype, Packet, PacketCodec, PacketHeader};
     use predicates::prelude::*;
-    use std::sync::Arc;
+    use std::{path::PathBuf, sync::Arc};
     use tokio::sync::Mutex;
 
     #[test]
@@ -882,5 +1021,43 @@ mod tests {
         // Make sure it is loopback.
         let listed_loopback = listed_loopback.unwrap();
         assert!(listed_loopback.flags.is_loopback())
+    }
+
+    #[test]
+    fn reader_process_capture() {
+        let mut pcap_name = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        pcap_name.push("../tests/resources/pcap/capture000.pcap");
+        let reader = Reader::from_pcap(pcap_name.as_os_str().to_str().unwrap());
+        let reader = reader.start();
+        assert!(reader.is_ok());
+        let mut reader = reader.unwrap();
+        let mut result = reader.read_next();
+        assert!(result.is_ok());
+        loop {
+            result = reader.read_next();
+            if result.is_err() {
+                assert!(matches!(result, Err(ReaderError::Eof { .. })));
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn reader_no_such_file() {
+        let mut pcap_name = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        pcap_name.push("../tests/resources/pcap/non-existing.pcap");
+        let reader = Reader::from_pcap(pcap_name.as_os_str().to_str().unwrap());
+        let result = reader.start();
+        assert!(result.is_err());
+        assert!(matches!(result, Err(ReaderError::Start { .. })))
+    }
+
+    #[test]
+    fn reader_pcap_path() {
+        let mut pcap_name = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        pcap_name.push("../tests/resources/pcap/capture000.pcap");
+        let reader = Reader::from_pcap(pcap_name.as_os_str().to_str().unwrap());
+        let path = reader.pcap_path();
+        assert_eq!(pcap_name.as_os_str().to_str().unwrap(), path)
     }
 }

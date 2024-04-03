@@ -6,7 +6,6 @@ use endure_macros::GetMetricValue;
 use prometheus_client::encoding::EncodeMetric;
 use prometheus_client::{collector::Collector, metrics::gauge::Gauge};
 use serde::Serialize;
-use std::fmt;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::{collections::BTreeMap, io, sync::atomic::AtomicI64};
@@ -288,12 +287,39 @@ impl MetricsStore {
     ///
     /// It may return an error when writing data to the writer fails.
     ///
-    pub fn serialize_json(&self, writer: &mut dyn fmt::Write) -> Result<(), fmt::Error> {
-        writer.write_str(
-            serde_json::to_string(&self.metrics)
-                .unwrap_or_default()
-                .as_str(),
-        )
+    pub fn serialize_json(&self, writer: &mut dyn io::Write) -> Result<(), io::Error> {
+        writer
+            .write(
+                serde_json::to_string(&self.metrics)
+                    .unwrap_or_default()
+                    .as_bytes(),
+            )
+            .map(|_| ())?;
+        writer.flush()?;
+        Ok(())
+    }
+
+    /// Serializes metric values as pretty printed JSON map.
+    ///
+    /// # Parameters
+    ///
+    /// - `writer` - a writer (e.g., [`String`]) where the serialized JSON is written.
+    ///
+    /// # Result
+    ///
+    /// It may return an error when writing data to the writer fails.
+    ///
+    pub fn serialize_json_pretty(&self, writer: &mut dyn io::Write) -> Result<(), io::Error> {
+        writer
+            .write(
+                serde_json::to_string_pretty(&self.metrics)
+                    .unwrap_or_default()
+                    .as_bytes(),
+            )
+            .map(|_| ())?;
+        write!(writer, "\n")?;
+        writer.flush()?;
+        Ok(())
     }
 }
 
@@ -469,10 +495,29 @@ mod tests {
             "average secs value",
             MetricValue::Float64Value(0.5),
         ));
-        let mut writer = String::new();
+        let mut writer = Vec::new();
         let result = store.serialize_json(&mut writer);
         assert!(result.is_ok());
-        assert_json!(writer.as_ref(), { "opcode": 1, "secs_avg": 0.5 });
+        assert_json!(String::from_utf8(writer.to_vec()).unwrap().as_str(), { "opcode": 1, "secs_avg": 0.5 });
+    }
+
+    #[test]
+    fn metrics_store_serialize_json_pretty() {
+        let mut store = MetricsStore::new();
+        store.set_metric(Metric::new(
+            "opcode",
+            "opcode value",
+            MetricValue::Int64Value(1),
+        ));
+        store.set_metric(Metric::new(
+            "secs_avg",
+            "average secs value",
+            MetricValue::Float64Value(0.5),
+        ));
+        let mut writer = Vec::new();
+        let result = store.serialize_json_pretty(&mut writer);
+        assert!(result.is_ok());
+        assert_json!(String::from_utf8(writer.to_vec()).unwrap().as_str(), { "opcode": 1, "secs_avg": 0.5 });
     }
 
     #[test]

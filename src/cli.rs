@@ -15,10 +15,16 @@
 
 use std::{path::Path, process::exit};
 
-use crate::dispatcher::{self, CsvOutputType};
-use endure_lib::listener::{self, Filter, Listener};
+use crate::{
+    dispatcher::{self, CsvOutputType},
+    pcap_processor::{OutputDest, PcapProcessor, ReportFormat, ReportType},
+};
+use endure_lib::capture::{self, Filter, Listener, Reader};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{
+    error::{ContextKind, ContextValue, ErrorKind},
+    Args, CommandFactory, Parser, Subcommand,
+};
 use futures::executor::block_on;
 
 /// A structure holding parsed program arguments.
@@ -68,6 +74,20 @@ fn directory_path_file_parser(path: &str) -> Result<String, String> {
     return Ok(path.as_os_str().to_str().unwrap().to_string());
 }
 
+/// A parser checking if the specified file exists.
+///
+/// # Result
+///
+/// It returns an error when the specified path is not a file or if
+/// it does not exist.
+fn file_path_parser(path: &str) -> Result<String, String> {
+    let path = Path::new(path);
+    if path.is_file() && path.exists() {
+        return Ok(path.as_os_str().to_str().unwrap().to_string());
+    }
+    return Err(format!("path {:?} does not exist", path));
+}
+
 /// An enum that defines the supported subcommands.
 #[derive(Subcommand)]
 enum Commands {
@@ -88,6 +108,20 @@ enum Commands {
         /// Specifies a location of the directory where pcap files are saved.
         #[arg(short, long, value_parser = directory_path_parser)]
         pcap_directory: Option<String>,
+    },
+    /// This command reads and analyzes a specified `pcap` file.
+    Read {
+        #[arg(short, long, value_parser = file_path_parser)]
+        pcap: String,
+        /// File location where the metrics should be written.
+        /// Use stdout to write the metrics to the console.
+        #[arg(short, long, value_parser = directory_path_file_parser, default_value_t = String::from("stdout"))]
+        output: String,
+        #[command(flatten)]
+        reporting: PcapReportingFormat,
+        /// Enable periodic metrics reports (can be only used with --csv option).
+        #[arg(long, action)]
+        stream: bool,
     },
 }
 
@@ -122,6 +156,17 @@ struct ReportingArgs {
     /// Enables server sent events (SSE).
     #[arg(long, action)]
     sse: bool,
+}
+
+#[derive(Args)]
+#[group(multiple = false, required = true)]
+struct PcapReportingFormat {
+    /// Metrics output in the CSV format.
+    #[arg(long, action)]
+    csv: bool,
+    /// Metrics output in the JSON format.
+    #[arg(long, action)]
+    json: bool,
 }
 
 impl Cli {
@@ -159,7 +204,7 @@ impl Cli {
                 } => {
                     // Check if the loopback interface has been explicitly.
                     if loopback {
-                        if let Some(loopback_name) = listener::Listener::loopback_name() {
+                        if let Some(loopback_name) = capture::Listener::loopback_name() {
                             interface_names.push(loopback_name)
                         }
                     }
@@ -223,6 +268,65 @@ impl Cli {
                             exit(128);
                         }
                         _ => exit(0),
+                    }
+                }
+                Commands::Read {
+                    pcap,
+                    output,
+                    stream,
+                    reporting: PcapReportingFormat { json, csv },
+                } => {
+                    // The --stream option can only be used with --csv.
+                    if stream && json {
+                        let command = Cli::command();
+                        let mut err =
+                            clap::Error::new(ErrorKind::ArgumentConflict).with_cmd(&command);
+                        err.insert(
+                            ContextKind::PriorArg,
+                            ContextValue::String("--json".to_owned()),
+                        );
+                        err.insert(
+                            ContextKind::InvalidArg,
+                            ContextValue::String("--stream".to_owned()),
+                        );
+                        err.print().expect("failed to print error");
+                        exit(128);
+                    }
+
+                    // Reader instance is used to read and parse the capture file.
+                    let reader = Reader::from_pcap(pcap.as_str())
+                        .with_filter(Filter::new().bootp_server_relay());
+
+                    // Processor will run the packets through the analyzer.
+                    let mut processor = PcapProcessor::from_reader(reader);
+
+                    // Processor may write to a file or to stdout.
+                    processor.output_dest = match output.as_str() {
+                        "stdout" => OutputDest::Stdout,
+                        _ => OutputDest::File(output),
+                    };
+
+                    // JSON report formatting.
+                    if json {
+                        processor.report_format = ReportFormat::Json;
+                    }
+
+                    // CSV report formatting.
+                    if csv {
+                        match stream {
+                            true => processor.report_format = ReportFormat::Csv(ReportType::Stream),
+                            false => processor.report_format = ReportFormat::Csv(ReportType::Final),
+                        }
+                    }
+
+                    // Analyze the capture and print the results.
+                    let result = processor.run();
+                    match result {
+                        Ok(()) => exit(0),
+                        Err(err) => {
+                            eprintln!("{}", err.to_string());
+                            exit(1);
+                        }
                     }
                 }
             }
