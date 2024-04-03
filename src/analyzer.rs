@@ -11,9 +11,9 @@ use endure_macros::cond_add_auditor;
 use crate::auditor::common::{
     AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor, GenericPacketAuditor,
 };
-use crate::auditor::opcode::OpCodeAuditor;
+use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
-use crate::auditor::retransmission::RetransmissionAuditor;
+use crate::auditor::retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor};
 use crate::proto::dhcp::v4;
 
 use actix_web::HttpResponse;
@@ -90,8 +90,10 @@ impl Analyzer {
     ///
     pub fn add_dhcpv4_auditors(&mut self, audit_profile: &AuditProfile) {
         let auditors = &mut self.auditors.lock().unwrap().dhcpv4_auditors;
-        cond_add_auditor!(RetransmissionAuditor);
-        cond_add_auditor!(OpCodeAuditor);
+        cond_add_auditor!(OpCodeTotalAuditor);
+        cond_add_auditor!(OpCodeStreamAuditor);
+        cond_add_auditor!(RetransmissionTotalAuditor);
+        cond_add_auditor!(RetransmissionStreamAuditor);
     }
 
     /// Runs analysis of the received packet.
@@ -184,7 +186,7 @@ impl Analyzer {
             .metrics_store
             .read()
             .unwrap()
-            .serialize_json(&mut writer);
+            .serialize_json_pretty(&mut writer);
         if result.is_err() {
             return Ok(HttpResponse::InternalServerError()
                 .content_type("application/json")
@@ -258,7 +260,7 @@ mod tests {
         analyzer.receive(packet_wrapper);
 
         let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT);
+        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -290,7 +292,7 @@ mod tests {
         analyzer.receive(packet_wrapper);
 
         let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT);
+        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -321,7 +323,7 @@ mod tests {
         // The packet shouldn't be analyzed and the metrics should not
         // be updated.
         let metrics_store = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
-        let metric = metrics_store.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT);
+        let metric = metrics_store.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
@@ -346,7 +348,7 @@ mod tests {
         analyzer.receive(packet_wrapper);
 
         let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT);
+        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
@@ -398,7 +400,7 @@ mod tests {
         }
         let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
 
-        let opcode_boot_replies_percent = metrics.get(METRIC_OPCODE_BOOT_REPLIES_PERCENT);
+        let opcode_boot_replies_percent = metrics.get(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100);
         assert!(opcode_boot_replies_percent.is_some());
         assert_eq!(
             0.0,
@@ -407,7 +409,7 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_boot_requests_percent = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT);
+        let opcode_boot_requests_percent = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(opcode_boot_requests_percent.is_some());
         assert_eq!(
             100.0,
@@ -416,28 +418,29 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_invalid_percent = metrics.get(METRIC_OPCODE_INVALID_PERCENT);
+        let opcode_invalid_percent = metrics.get(METRIC_OPCODE_INVALID_PERCENT_100);
         assert!(opcode_invalid_percent.is_some());
         assert_eq!(
             0.0,
             opcode_invalid_percent.unwrap().get_value_unwrapped::<f64>()
         );
 
-        let retransmit_percent = metrics.get(METRIC_RETRANSMIT_PERCENT);
+        let retransmit_percent = metrics.get(METRIC_RETRANSMIT_PERCENT_100);
         assert!(retransmit_percent.is_some());
         assert_eq!(
             90.0,
             retransmit_percent.unwrap().get_value_unwrapped::<f64>()
         );
 
-        let retransmit_secs_avg = metrics.get(METRIC_RETRANSMIT_SECS_AVG);
+        let retransmit_secs_avg = metrics.get(METRIC_RETRANSMIT_SECS_AVG_100);
         assert!(retransmit_secs_avg.is_some());
         assert_eq!(
             4.5,
             retransmit_secs_avg.unwrap().get_value_unwrapped::<f64>()
         );
 
-        let retransmit_longest_trying_client = metrics.get(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT);
+        let retransmit_longest_trying_client =
+            metrics.get(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100);
         assert!(retransmit_longest_trying_client.is_some());
         assert_eq!(
             "2d:20:59:2b:0c:16",
@@ -472,24 +475,24 @@ mod tests {
             buffer.contains("# HELP opcode_invalid_count Total number of the invalid messages.")
         );
         assert!(buffer.contains(
-            "# HELP opcode_boot_requests_percent Percentage of the BootRequest messages."
+            "# HELP opcode_boot_requests_percent_100 Percentage of the BootRequest messages in last 100 messages."
         ));
-        assert!(buffer.contains("# TYPE opcode_boot_requests_percent gauge"));
-        assert!(buffer.contains("opcode_boot_requests_percent 100.0"));
+        assert!(buffer.contains("# TYPE opcode_boot_requests_percent_100 gauge"));
+        assert!(buffer.contains("opcode_boot_requests_percent_100 100.0"));
         assert!(buffer
-            .contains("# HELP opcode_boot_replies_percent Percentage of the BootReply messages."));
-        assert!(buffer.contains("# TYPE opcode_boot_replies_percent gauge"));
-        assert!(buffer.contains("opcode_boot_replies_percent 0.0"));
+            .contains("# HELP opcode_boot_replies_percent_100 Percentage of the BootReply messages in last 100 messages."));
+        assert!(buffer.contains("# TYPE opcode_boot_replies_percent_100 gauge"));
+        assert!(buffer.contains("opcode_boot_replies_percent_100 0.0"));
         assert!(
-            buffer.contains("# HELP opcode_invalid_percent Percentage of the invalid messages.")
+            buffer.contains("# HELP opcode_invalid_percent_100 Percentage of the invalid messages in last 100 messages.")
         );
-        assert!(buffer.contains("# TYPE opcode_invalid_percent gauge"));
-        assert!(buffer.contains("opcode_invalid_percent 0.0"));
-        assert!(buffer.contains("# HELP retransmit_percent Percentage of the retransmissions in the mssages sent by clients."));
-        assert!(buffer.contains("# TYPE retransmit_percent gauge"));
-        assert!(buffer.contains("retransmit_percent 90.0"));
-        assert!(buffer.contains("# TYPE retransmit_secs_avg gauge"));
-        assert!(buffer.contains("retransmit_secs_avg 4.5"));
+        assert!(buffer.contains("# TYPE opcode_invalid_percent_100 gauge"));
+        assert!(buffer.contains("opcode_invalid_percent_100 0.0"));
+        assert!(buffer.contains("# HELP retransmit_percent_100 Percentage of the retransmissions in the last 100 messages sent by clients."));
+        assert!(buffer.contains("# TYPE retransmit_percent_100 gauge"));
+        assert!(buffer.contains("retransmit_percent_100 90.0"));
+        assert!(buffer.contains("# TYPE retransmit_secs_avg_100 gauge"));
+        assert!(buffer.contains("retransmit_secs_avg_100 4.5"));
         assert!(buffer.contains("# EOF"));
     }
 
@@ -501,6 +504,6 @@ mod tests {
         assert!(result.is_ok());
         let body = to_bytes(result.unwrap().into_body()).await.unwrap();
         let body = body.as_str();
-        assert_json!(body, { METRIC_OPCODE_BOOT_REPLIES_PERCENT: 0.0 });
+        assert_json!(body, { METRIC_OPCODE_BOOT_REPLIES_PERCENT_100: 0.0 });
     }
 }
