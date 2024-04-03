@@ -1,5 +1,7 @@
 # ChangeLog
 
+* Enabled `pcap` file analysis with the `endure read` command.
+
 * Code refactoring required for collecting variable number of
   metrics depending on the selected profile. It introduces no
   new functionality to a user but is a necessary ground work
