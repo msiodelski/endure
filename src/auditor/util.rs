@@ -178,7 +178,7 @@ where
 /// counter.
 ///
 /// A typical application of the [`TotalCounter`] is when an auditor counts
-/// several types of the processed messages and needs to calculate occurence
+/// several types of the processed messages and needs to calculate occurrence
 /// percentage of each message type among all messages.
 ///
 /// # Generic Parameters
@@ -187,7 +187,7 @@ where
 ///
 /// # Usage Example
 ///
-/// Suppose you want to track the occurence of 3 message types. The [`TotalCounter`]
+/// Suppose you want to track the occurrence of 3 message types. The [`TotalCounter`]
 /// can be used as follows to display the percentages for each counter:
 ///
 /// ```rust
