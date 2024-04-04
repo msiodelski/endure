@@ -1,5 +1,20 @@
-//! `opcode` is a module implementing the auditors analyzing the
-//! `OpCode` values in the `BOOTP` packets.
+//! `opcode` is a module implementing auditors maintaining statistics of
+//! the `BOOTP` message types.
+//!
+//! They recognize `BootRequest` and `BootReply` messages and maintain
+//! a total number and the percentage of each message type in the received
+//! packets.
+//!
+//! # Metrics
+//!
+//! Keeping track of the `BootRequest` and `BootReply` message types can
+//! be useful to detect situations when a DHCP server is unable to keep up
+//! with the traffic. Another extreme case is when the are only `BootRequest`
+//! messages and no `BootReply`. It indicates that the server is down
+//! or misconfigured. The [`OpCodeTotalAuditor`] tracks the absolute number
+//! of messages of a certain type and their percentages in all received packets.
+//! The [`OpCodeStreamAuditor`] tracks the percentages of the message types in
+//! most recent packets.
 
 use crate::{
     auditor::{common::AuditProfile, metric::*},
@@ -16,26 +31,10 @@ use super::{
 /// An auditor maintaining the total statistics of the `BOOTP` message
 /// types.
 ///
-/// It recognizes `BootRequest` and `BootReply` messages and maintains
-/// a total number and the percentage of each message type in the received
-/// packets.
-///
-/// # Metrics
-///
-/// Keeping track of the `BootRequest` and `BootReply` message types can
-/// be useful to detect situations when a DHCP server is unable to keep up
-/// with the traffic. Another extreme case is when the are only `BootRequest`
-/// messages and no `BootReply`. It indicates that the server is down
-/// or misconfigured.
-///
-/// The auditor also returns an average number of invalid messages
-/// (i.e., neither `BootRequest` nor `BootReply`).
-///
 /// # Profiles
 ///
 /// This auditor is used for analyzing capture files when the metrics are displayed
 /// at the end of the analysis.
-///
 #[derive(AuditProfileCheck, Clone, Debug, FromMetricsStore)]
 #[profiles(
     AuditProfile::LiveStreamFull,
@@ -152,26 +151,10 @@ impl InitMetrics for OpCodeTotalAuditor {
 
 /// An auditor maintaining the statistics of the `BOOTP` message types.
 ///
-/// It recognizes `BootRequest` and `BootReply` messages and maintains
-/// an average percentage of each message type in the received packets
-/// stream.
-///
-/// # Metrics
-///
-/// Keeping track of the `BootRequest` and `BootReply` message types can
-/// be useful to detect situations when a DHCP server is unable to keep up
-/// with the traffic. Another extreme case is when the are only `BootRequest`
-/// messages and no `BootReply`. It indicates that the server is down
-/// or misconfigured.
-///
-/// The auditor also returns an average number of invalid messages
-/// (i.e., neither `BootRequest` nor `BootReply`).
-///
 /// # Profiles
 ///
 /// This auditor is used for analyzing live packet streams or capture files
 /// when the metrics are periodically displayed during the analysis.
-///
 #[derive(AuditProfileCheck, Clone, Debug, FromMetricsStore)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct OpCodeStreamAuditor {

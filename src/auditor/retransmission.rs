@@ -1,5 +1,19 @@
-//! `retransmission` is a module implementing the auditors analyzing the
-//! packet retransmissions looking into the `secs` values.
+//! `retransmission` is a module implementing auditors maintaining the
+//! statistics of DHCP retransmissions.
+//!
+//! The auditors look into the `secs` field of the `BOOTP` messages. If its
+//! value is greater than zero it indicates that the client has been unable
+//! to allocate a lease in the previous attempts and the client retransmits.
+//!
+//! # Metrics
+//!
+//! Client retransmissions often occur when the server is unable to keep up
+//! with the DHCP traffic load. A high average value of the `secs` field and
+//! a high average number of retransmissions indicate that the server has
+//! hard time to keep up with the traffic.
+//!
+//! The auditors also keep track of the MAC address of the client who has been
+//! trying to get a lease for a longest period of time packets.
 
 use super::{
     common::{AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor},
@@ -11,20 +25,6 @@ use endure_lib::metric::{FromMetricsStore, InitMetrics, Metric, MetricValue, Sha
 use endure_macros::{AuditProfileCheck, FromMetricsStore};
 
 /// An auditor maintaining the statistics of DHCP retransmissions in all messages.
-///
-/// The auditor looks into the `secs` field of the `BOOTP` messages. If this
-/// field has a value greater than zero it indicates that the client has been
-/// unable to allocate a lease in the previous attempts and retransmits.
-///
-/// # Metrics
-///
-/// Client retransmissions often occur when the server is unable to keep up
-/// with the DHCP traffic load. A high average value of the `secs` field and
-/// a high average number of retransmissions indicate that the server has
-/// hard time to keep up with the traffic.
-///
-/// The auditor also keeps track of the MAC address of the client who has been
-/// trying to get a lease for a longest period of time in all packets.
 ///
 /// # Profiles
 ///
@@ -126,20 +126,6 @@ impl InitMetrics for RetransmissionTotalAuditor {
 }
 
 /// An auditor maintaining the statistics of DHCP retransmissions.
-///
-/// The auditor looks into the `secs` field of the `BOOTP` messages. If this
-/// field has a value greater than zero it indicates that the client has been
-/// unable to allocate a lease in the previous attempts and retransmits.
-///
-/// # Metrics
-///
-/// Client retransmissions often occur when the server is unable to keep up
-/// with the DHCP traffic load. A high average value of the `secs` field and
-/// a high average number of retransmissions indicate that the server has
-/// hard time to keep up with the traffic.
-///
-/// The auditor also keeps track of the MAC address of the client who has been
-/// trying to get a lease for a longest period of time in last 100 packets.
 ///
 /// # Profiles
 ///
