@@ -1,4 +1,5 @@
-//! `packet_time` is a module implementing auditor tracking last packet timestamp.
+//! `packet_time` is a module implementing an auditor tracking last packet
+//! timestamp.
 
 use super::{
     common::{AuditProfile, AuditProfileCheck, GenericPacketAuditor},
@@ -13,9 +14,11 @@ use endure_macros::{AuditProfileCheck, FromMetricsStore};
 
 /// An auditor tracking timestamp of the last analyzed packet.
 ///
-/// This auditor is particularly useful in `pcap` file analysis. In live capture
-/// case we display report timestamps. In `pcap` case only packet timestamps
-/// are available.
+/// # Profiles
+///
+/// This auditor is used during the `pcap` file analysis. It is not used for
+/// the analysis of the captures from the network interface.
+///
 #[derive(AuditProfileCheck, Clone, Debug, FromMetricsStore)]
 #[profiles(AuditProfile::PcapStreamFull)]
 pub struct PacketTimeAuditor {
@@ -100,14 +103,11 @@ mod tests {
 
         let metrics_store_ref = metrics_store.clone();
 
-        let packet_time_date_time = metrics_store_ref
+        // Initially, the packet time should be empty.
+        assert!(metrics_store_ref
             .read()
             .unwrap()
-            .get(METRIC_PACKET_TIME_DATE_TIME);
-        assert!(packet_time_date_time.is_some());
-        assert!(packet_time_date_time
-            .unwrap()
-            .get_value_unwrapped::<String>()
+            .get_metric_value_unwrapped::<String>(METRIC_PACKET_TIME_DATE_TIME)
             .is_empty());
 
         let packet = PacketWrapper {
@@ -127,14 +127,11 @@ mod tests {
         auditor.audit(&packet);
         auditor.collect_metrics();
 
-        let packet_time_date_time = metrics_store_ref
+        // The packet time should have been set.
+        assert!(metrics_store_ref
             .read()
             .unwrap()
-            .get(METRIC_PACKET_TIME_DATE_TIME);
-        assert!(packet_time_date_time.is_some());
-        assert!(packet_time_date_time
-            .unwrap()
-            .get_value_unwrapped::<String>()
+            .get_metric_value_unwrapped::<String>(METRIC_PACKET_TIME_DATE_TIME)
             .starts_with("2024-03-27"));
     }
 }

@@ -1,4 +1,4 @@
-//! `common` is a module with common declarations for different auditors.
+//! `common` module contains common declarations for different auditors.
 
 use std::fmt::Debug;
 
@@ -7,14 +7,21 @@ use endure_lib::capture::PacketWrapper;
 use crate::proto::dhcp::v4;
 
 /// Capture and analysis profiles.
+///
+/// A profile defines a collection of auditors used for the analysis. Some
+/// of the auditors are not suitable for analyzing the capture files, others
+/// are not suitable for analyzing the live packet streams. Predefined profiles
+/// differentiate between these cases. The profiles can also select specific
+/// auditors aimed at diagnosing a certain set of issues.
 #[derive(PartialEq)]
 pub enum AuditProfile {
-    /// All auditors enabled and online capture with moving average window.
+    /// Enable all auditors, capture traffic from interface and analyze
+    /// using moving average window.
     LiveStreamFull,
-    /// All auditors enabled and pcap analysis with moving average window.
+    /// Enable all auditors, analyze a capture file with moving average window.
     PcapStreamFull,
-    /// All auditors enabled and pcap analysis with only final metrics
-    /// presented.
+    /// Enable all auditors, analyze a capture file and compute the metrics from
+    /// the entire capture.
     PcapFinalFull,
 }
 
