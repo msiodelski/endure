@@ -128,7 +128,7 @@ impl Analyzer {
         }
     }
 
-    /// Runs generic auditors for the recieved packet.
+    /// Runs generic auditors for the received packet.
     ///
     /// # Parameters
     ///

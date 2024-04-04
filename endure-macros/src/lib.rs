@@ -175,7 +175,7 @@ pub fn audit_profile_check(input: TokenStream) -> TokenStream {
 
 /// A macro conditionally adding an auditor to the analyzer.
 ///
-/// This macro eliminates a repeatitive code in the packet analyzer which
+/// This macro eliminates a repetitive code in the packet analyzer which
 /// checks if the specified auditor should be installed for the particular
 /// profile. The auditors must implement the `AuditProfileCheck` trait.
 ///
