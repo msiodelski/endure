@@ -89,13 +89,13 @@ impl<T: PartialOrd + Copy> ClampedNumber<T> {
 /// the data seek to the specified positions. If the specified position or the read
 /// data length are out of bounds the [BufferError::ReadOutOfBounds] error is returned.
 #[derive(Clone)]
-pub struct ReceiveBuffer<'a> {
-    buffer: &'a [u8],
+pub struct ReceiveBuffer {
+    buffer: Vec<u8>,
 }
 
-impl<'a> ReceiveBuffer<'a> {
+impl ReceiveBuffer {
     /// Instantiates a buffer from a data array.
-    pub fn new(data: &'a [u8]) -> ReceiveBuffer<'a> {
+    pub fn new(data: Vec<u8>) -> ReceiveBuffer {
         ReceiveBuffer { buffer: data }
     }
 
@@ -112,7 +112,7 @@ impl<'a> ReceiveBuffer<'a> {
     /// the length spans beyond the end of the buffer it returns the [BufferError::ReadOutOfBounds]
     /// error.
     fn read<const N: usize>(&mut self, pos: u32) -> Result<[u8; N]> {
-        let mut cursor = Cursor::new(self.buffer);
+        let mut cursor = Cursor::new(&self.buffer);
         cursor.set_position(u64::from(pos));
         let mut buf: [u8; N] = [0; N];
         cursor
@@ -160,7 +160,7 @@ impl<'a> ReceiveBuffer<'a> {
             // The buffer is not long enough. Let's read until the end of the buffer.
             len = self.buffer.len() - pos as usize;
         }
-        let mut cursor = Cursor::new(self.buffer);
+        let mut cursor = Cursor::new(&self.buffer);
         cursor.set_position(u64::from(pos));
         let mut buf: Vec<u8> = vec![0; len];
         cursor
@@ -206,7 +206,7 @@ impl<'a> ReceiveBuffer<'a> {
                 buffer_length: self.buffer.len(),
             });
         }
-        let mut cursor = Cursor::new(self.buffer);
+        let mut cursor = Cursor::new(&self.buffer);
         cursor.set_position(u64::from(pos));
         let mut buf = Vec::<u8>::new();
         // Read until we hit null (zero).
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn receive_buffer_read() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read::<4>(3);
         assert!(read.is_ok());
@@ -328,7 +328,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_empty_buffer() {
         let data: [u8; 0] = [];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read::<1>(0);
         assert!(read.is_err());
@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_vec() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read_vec(3, 4);
         assert!(read.is_ok());
@@ -358,7 +358,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_vec_eof() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read_vec(8, 10);
         assert!(read.is_ok());
@@ -368,7 +368,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_vec_out_of_bounds() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read_vec(15, 4);
         assert!(read.is_err());
@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_null_terminated_with_null() {
         let data: [u8; 10] = [0x65, 0x65, 0x68, 0x70, 0x71, 0x73, 0x62, 0, 0x63, 0x64];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let s = buf.read_null_terminated(1, 20);
         assert!(s.is_ok());
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn receive_buffer_read_null_terminated_without_null() {
         let data: [u8; 10] = [0x65, 0x65, 0x68, 0x70, 0x71, 0x73, 0x62, 0x65, 0x63, 0x64];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let s = buf.read_null_terminated(1, 20);
         assert!(s.is_ok());
@@ -402,7 +402,7 @@ mod tests {
     fn receive_buffer_read_null_terminated_utf8_error() {
         // 0xc3, 0x28 is an invalid UTF-8 sequence.
         let data: [u8; 6] = [0xc3, 0x28, 0x61, 0x62, 0x63, 0];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let read = buf.read_null_terminated(0, 5);
         assert!(read.is_err());
@@ -415,7 +415,7 @@ mod tests {
     #[test]
     fn read_u8() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let value = buf.read_u8(3);
         assert!(value.is_ok());
@@ -432,7 +432,7 @@ mod tests {
     #[test]
     fn read_u16() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let value = buf.read_u16(5);
         assert!(value.is_ok());
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn read_u32() {
         let data: [u8; 10] = [5, 7, 1, 8, 9, 3, 8, 9, 10, 8];
-        let mut buf = ReceiveBuffer::new(&data);
+        let mut buf = ReceiveBuffer::new(data.to_vec());
 
         let value = buf.read_u32(1);
         assert!(value.is_ok());

@@ -21,7 +21,10 @@ use crate::proto::{
 /// state includes an unparsed buffer. The packet must be converted into the
 /// parsable state with the [ReceivedPacket::into_parsable] to parse the
 /// packet.
-pub struct RawState;
+pub struct RawState {
+    /// Unparsed packet data.
+    data: Vec<u8>,
+}
 
 /// Partially parsed packet state.
 ///
@@ -37,8 +40,8 @@ pub struct RawState;
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
 #[derive(Clone)]
-pub struct PartiallyParsedState<'a> {
-    bootp: bootp::ReceivedPacket<'a, bootp::PartiallyParsedState<'a>>,
+pub struct PartiallyParsedState {
+    bootp: bootp::ReceivedPacket<bootp::PartiallyParsedState>,
 }
 
 /// A structure representing a received DHCP packet.
@@ -54,18 +57,16 @@ pub struct PartiallyParsedState<'a> {
 /// explicitly transitioned to the [PartiallyParsedState] before parsing and
 /// accessing the named data fields carried in the packet.
 #[derive(Clone)]
-pub struct ReceivedPacket<'a, State> {
-    /// Unparsed packet data.
-    data: &'a [u8],
+pub struct ReceivedPacket<State> {
     /// Packet state.
     state: State,
 }
 
 /// A shorthand type for the raw packet.
-pub type RawPacket<'a> = ReceivedPacket<'a, RawState>;
+pub type RawPacket = ReceivedPacket<RawState>;
 
 /// A shorthand type for the partially parsed packet.
-pub type PartiallyParsedPacket<'a> = ReceivedPacket<'a, PartiallyParsedState<'a>>;
+pub type PartiallyParsedPacket = ReceivedPacket<PartiallyParsedState>;
 
 /// A structure representing an inbound DHCP option.
 #[allow(dead_code)]
@@ -83,37 +84,37 @@ pub struct Flags {
     flags: u16,
 }
 
-impl<'a> ReceivedPacket<'a, RawState> {
+impl ReceivedPacket<RawState> {
     /// Creates a new raw packet instance.
     ///
     /// # Parameters
     ///
     /// - `data` is a reference to the buffer holding the packet.
-    pub fn new(data: &'a [u8]) -> ReceivedPacket<'a, RawState> {
+    pub fn new(data: &[u8]) -> ReceivedPacket<RawState> {
         ReceivedPacket {
-            data,
-            state: RawState,
+            state: RawState {
+                data: data.to_vec(),
+            },
         }
     }
 
     /// Converts the packet to the BOOTP packet.
-    pub fn as_bootp(self) -> bootp::ReceivedPacket<'a, bootp::RawState> {
-        bootp::ReceivedPacket::new(self.data)
+    pub fn as_bootp(self) -> bootp::ReceivedPacket<bootp::RawState> {
+        bootp::ReceivedPacket::new(&self.state.data)
     }
 
     /// Transitions the packet from the [RawState] to the [PartiallyParsedState].
-    pub fn into_parsable(&self) -> ReceivedPacket<'a, PartiallyParsedState<'a>> {
-        let bootp = bootp::ReceivedPacket::new(self.data);
-        ReceivedPacket::<'a, PartiallyParsedState> {
-            data: self.data,
-            state: PartiallyParsedState::<'a> {
+    pub fn into_parsable(&self) -> ReceivedPacket<PartiallyParsedState> {
+        let bootp = bootp::ReceivedPacket::new(&self.state.data);
+        ReceivedPacket::<PartiallyParsedState> {
+            state: PartiallyParsedState {
                 bootp: bootp.into_parsable(),
             },
         }
     }
 }
 
-impl<'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
+impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `opcode`.
     pub fn opcode(&mut self) -> Result<&bootp::OpCode, BufferError> {
         self.state.bootp.opcode()

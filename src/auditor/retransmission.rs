@@ -52,7 +52,7 @@ impl Default for RetransmissionTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
-    fn audit<'a>(&mut self, packet: &mut v4::PartiallyParsedPacket<'a>) {
+    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
         let opcode = packet.opcode();
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
             return;
@@ -153,7 +153,7 @@ impl Default for RetransmissionStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionStreamAuditor {
-    fn audit<'a>(&mut self, packet: &mut v4::PartiallyParsedPacket<'a>) {
+    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
         let opcode = packet.opcode();
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
             return;
