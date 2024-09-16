@@ -104,7 +104,7 @@ impl Analyzer {
     /// # Parameters
     ///
     /// - `packet` - a wrapper containing the captured packet and its metadata
-    pub fn receive<'a>(&mut self, packet: PacketWrapper) {
+    pub fn receive(&mut self, packet: PacketWrapper) {
         // Run protocol-independent audit.
         self.audit_generic(&packet);
 
@@ -145,7 +145,7 @@ impl Analyzer {
     /// # Parameters
     ///
     /// - `packet` - a received unparsed DHCPv4 packet
-    fn audit_dhcpv4<'a>(&mut self, packet: &v4::RawPacket<'a>) {
+    fn audit_dhcpv4(&mut self, packet: &v4::RawPacket) {
         let mut packet = packet.into_parsable();
         for auditor in self.auditors.lock().unwrap().dhcpv4_auditors.iter_mut() {
             auditor.audit(&mut packet);

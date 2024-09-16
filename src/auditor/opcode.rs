@@ -56,7 +56,7 @@ impl Default for OpCodeTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
-    fn audit<'a>(&mut self, packet: &mut v4::PartiallyParsedPacket<'a>) {
+    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
         match packet.opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
@@ -172,7 +172,7 @@ impl Default for OpCodeStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
-    fn audit<'a>(&mut self, packet: &mut v4::PartiallyParsedPacket<'a>) {
+    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
         match packet.opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {

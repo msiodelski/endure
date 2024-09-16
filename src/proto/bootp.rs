@@ -169,7 +169,10 @@ impl Display for HAddr {
 /// state includes an unparsed buffer. The packet must be converted into the
 /// parsable state with the [ReceivedPacket::into_parsable] to parse the
 /// packet.
-pub struct RawState;
+pub struct RawState {
+    /// Unparsed packet data.
+    data: Vec<u8>,
+}
 
 /// Partially parsed packet state.
 ///
@@ -185,8 +188,8 @@ pub struct RawState;
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
 #[derive(Clone)]
-pub struct PartiallyParsedState<'a> {
-    buffer: ReceiveBuffer<'a>,
+pub struct PartiallyParsedState {
+    buffer: ReceiveBuffer,
     parsed_opcode: Option<OpCode>,
     parsed_htype: Option<HType>,
     parsed_hlen: Option<ClampedNumber<u8>>,
@@ -216,32 +219,30 @@ pub struct PartiallyParsedState<'a> {
 /// explicitly transitioned to the [PartiallyParsedState] before parsing and
 /// accessing the named data fields carried in the packet.
 #[derive(Clone)]
-pub struct ReceivedPacket<'a, State> {
-    /// Unparsed packet data.
-    data: &'a [u8],
+pub struct ReceivedPacket<State> {
     /// Packet state.
     state: State,
 }
 
-impl<'a> ReceivedPacket<'a, RawState> {
+impl ReceivedPacket<RawState> {
     /// Creates a new raw packet instance.
     ///
     /// # Parameters
     ///
     /// - `data` is a reference to the buffer holding the packet
-    pub fn new(data: &'a [u8]) -> ReceivedPacket<'a, RawState> {
+    pub fn new(data: &[u8]) -> ReceivedPacket<RawState> {
         ReceivedPacket {
-            data,
-            state: RawState,
+            state: RawState {
+                data: data.to_vec(),
+            },
         }
     }
 
     /// Transitions the packet from the [RawState] to the [PartiallyParsedState].
-    pub fn into_parsable(self) -> ReceivedPacket<'a, PartiallyParsedState<'a>> {
-        ReceivedPacket::<'a, PartiallyParsedState> {
-            data: self.data,
+    pub fn into_parsable(self) -> ReceivedPacket<PartiallyParsedState> {
+        ReceivedPacket::<PartiallyParsedState> {
             state: PartiallyParsedState {
-                buffer: ReceiveBuffer::new(self.data),
+                buffer: ReceiveBuffer::new(self.state.data),
                 parsed_opcode: None,
                 parsed_htype: None,
                 parsed_hlen: None,
@@ -261,7 +262,7 @@ impl<'a> ReceivedPacket<'a, RawState> {
     }
 }
 
-impl<'a> ReceivedPacket<'a, PartiallyParsedState<'a>> {
+impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `opcode`.
     pub fn opcode(&mut self) -> Result<&OpCode, BufferError> {
         if self.state.parsed_opcode.is_some() {
