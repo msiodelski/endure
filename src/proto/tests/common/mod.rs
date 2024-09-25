@@ -24,14 +24,79 @@ const VALID_BOOTP_PACKET: &'static [u8] = &[
     0, // vend (64 bytes)
 ];
 
-pub struct TestBootpPacket {
+const VALID_DHCP_PACKET: &'static [u8] = &[
+    1, // op (1 byte) = BOOTREQUEST
+    1, // htype (1 byte) = Ethernet
+    6, // hlen (1 byte)
+    1, // hops (1 byte)
+    0, 0, 0, 5, // xid (4 bytes)
+    0, 3, // secs (2 bytes)
+    0, 0, // flags (2 bytes)
+    0, 0, 0, 0, // ciaddr (4 bytes)
+    0, 0, 0, 0, // yiaddr (4 bytes)
+    0, 0, 0, 0, // siaddr (4 bytes)
+    127, 0, 0, 1, // giaddr (4 bytes)
+    0, 12, 1, 2, 3, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // chaddr (16 bytes)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // sname (64 bytes)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // file (128 bytes)
+    99, 130, 83, 99, // magic cookie (4 bytes)
+    53, 1, 1, // option 53: DHCPDISCOVER
+    55, 7, 1, 28, 2, 3, 15, 6, 12, // option 55: Parameter Request List
+    61, 7, 1, 0, 12, 1, 2, 3, 9,   // option 61: Client Identifier
+    255, // option 255: END
+];
+
+const BASE_DHCP_PACKET: &'static [u8] = &[
+    1, // op (1 byte) = BOOTREQUEST
+    1, // htype (1 byte) = Ethernet
+    6, // hlen (1 byte)
+    1, // hops (1 byte)
+    0, 0, 0, 5, // xid (4 bytes)
+    0, 3, // secs (2 bytes)
+    0, 0, // flags (2 bytes)
+    0, 0, 0, 0, // ciaddr (4 bytes)
+    0, 0, 0, 0, // yiaddr (4 bytes)
+    0, 0, 0, 0, // siaddr (4 bytes)
+    127, 0, 0, 1, // giaddr (4 bytes)
+    0, 12, 1, 2, 3, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // chaddr (16 bytes)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // sname (64 bytes)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, // file (128 bytes)
+    99, 130, 83, 99, // magic cookie (4 bytes)
+];
+
+#[derive(Debug)]
+pub struct TestPacket {
     data: Vec<u8>,
 }
 
-impl TestBootpPacket {
-    pub fn new() -> TestBootpPacket {
-        TestBootpPacket {
+impl TestPacket {
+    pub fn new_valid_bootp_packet() -> Self {
+        Self {
             data: VALID_BOOTP_PACKET.to_vec(),
+        }
+    }
+
+    pub fn new_valid_dhcp_packet() -> Self {
+        Self {
+            data: VALID_DHCP_PACKET.to_vec(),
+        }
+    }
+
+    pub fn new_base_dhcp_packet() -> Self {
+        Self {
+            data: BASE_DHCP_PACKET.to_vec(),
         }
     }
 
@@ -39,10 +104,16 @@ impl TestBootpPacket {
         &self.data
     }
 
-    pub fn set(self, pos: u32, new_data: &[u8]) -> TestBootpPacket {
+    pub fn set(self, pos: u32, new_data: &[u8]) -> TestPacket {
         let pos_converted = pos as usize;
         let mut data = self.data;
         data[pos_converted..pos_converted + new_data.len()].copy_from_slice(new_data);
-        TestBootpPacket { data }
+        TestPacket { data }
+    }
+
+    pub fn append(self, new_data: &[u8]) -> TestPacket {
+        let mut data = self.data;
+        data.append(&mut new_data.to_vec());
+        TestPacket { data }
     }
 }
