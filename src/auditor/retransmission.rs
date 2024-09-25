@@ -239,7 +239,7 @@ mod tests {
         proto::{
             bootp::{OPCODE_POS, SECS_POS},
             dhcp::v4::ReceivedPacket,
-            tests::common::TestBootpPacket,
+            tests::common::TestPacket,
         },
     };
 
@@ -260,7 +260,7 @@ mod tests {
     fn retransmissions_total_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
         let mut auditor = RetransmissionTotalAuditor::from_metrics_store(&metrics_store);
-        let test_packet = TestBootpPacket::new();
+        let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
             .set(SECS_POS, &vec![0, 0]);
@@ -299,7 +299,7 @@ mod tests {
         // Audit 4 packets. The first is not a retransmission. The remaining ones
         // have the increasing secs value.
         for i in 0..4 {
-            let test_packet = TestBootpPacket::new()
+            let test_packet = TestPacket::new_valid_bootp_packet()
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
@@ -350,7 +350,7 @@ mod tests {
     fn retransmissions_stream_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
         let mut auditor = RetransmissionStreamAuditor::from_metrics_store(&metrics_store);
-        let test_packet = TestBootpPacket::new();
+        let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
             .set(SECS_POS, &vec![0, 0]);
@@ -389,7 +389,7 @@ mod tests {
         // Audit 4 packets. The first is not a retransmission. The remaining ones
         // have the increasing secs value.
         for i in 0..4 {
-            let test_packet = TestBootpPacket::new()
+            let test_packet = TestPacket::new_valid_bootp_packet()
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();

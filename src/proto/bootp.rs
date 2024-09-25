@@ -420,6 +420,11 @@ impl ReceivedPacket<PartiallyParsedState> {
             .read_null_terminated(FILE_POS, FILE_MAX_LEN)
             .map(|file| &*self.state.parsed_file.insert(file))
     }
+
+    /// Returns packet buffer.
+    pub fn buffer(&mut self) -> &mut ReceiveBuffer {
+        &mut self.state.buffer
+    }
 }
 
 #[cfg(test)]
@@ -427,7 +432,7 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use crate::proto::bootp::*;
-    use crate::proto::tests::common::TestBootpPacket;
+    use crate::proto::tests::common::TestPacket;
 
     #[test]
     fn display_hardware_address() {
@@ -443,7 +448,7 @@ mod tests {
 
     #[test]
     fn valid_packet() {
-        let test_packet = TestBootpPacket::new();
+        let test_packet = TestPacket::new_valid_bootp_packet();
         let packet = ReceivedPacket::new(test_packet.get());
 
         let mut parsed_packet = packet.into_parsable();
@@ -470,7 +475,7 @@ mod tests {
 
     #[test]
     fn invalid_opcode() {
-        let test_packet = TestBootpPacket::new().set(OPCODE_POS, &vec![5]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(OPCODE_POS, &vec![5]);
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::Invalid(5)));
@@ -478,7 +483,7 @@ mod tests {
 
     #[test]
     fn other_htype() {
-        let test_packet = TestBootpPacket::new().set(HTYPE_POS, &vec![244]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(HTYPE_POS, &vec![244]);
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Other(244)));
@@ -486,7 +491,7 @@ mod tests {
 
     #[test]
     fn other_chaddr_type() {
-        let test_packet = TestBootpPacket::new()
+        let test_packet = TestPacket::new_valid_bootp_packet()
             .set(HTYPE_POS, &vec![2, 4])
             .set(CHADDR_POS, &vec![1, 2, 3, 4]);
 
@@ -504,10 +509,12 @@ mod tests {
 
     #[test]
     fn too_high_hlen() {
-        let test_packet = TestBootpPacket::new().set(HLEN_POS, &vec![20]).set(
-            CHADDR_POS,
-            &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
-        );
+        let test_packet = TestPacket::new_valid_bootp_packet()
+            .set(HLEN_POS, &vec![20])
+            .set(
+                CHADDR_POS,
+                &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            );
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -526,7 +533,7 @@ mod tests {
 
     #[test]
     fn zero_hlen() {
-        let test_packet = TestBootpPacket::new().set(HLEN_POS, &vec![0]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(HLEN_POS, &vec![0]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -542,7 +549,8 @@ mod tests {
 
     #[test]
     fn empty_sname() {
-        let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
+        let test_packet =
+            TestPacket::new_valid_bootp_packet().set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -554,7 +562,8 @@ mod tests {
 
     #[test]
     fn too_long_sname() {
-        let test_packet = TestBootpPacket::new().set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
+        let test_packet =
+            TestPacket::new_valid_bootp_packet().set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -566,7 +575,8 @@ mod tests {
 
     #[test]
     fn empty_file() {
-        let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![0; FILE_MAX_LEN]);
+        let test_packet =
+            TestPacket::new_valid_bootp_packet().set(FILE_POS, &vec![0; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -578,7 +588,8 @@ mod tests {
 
     #[test]
     fn too_long_file() {
-        let test_packet = TestBootpPacket::new().set(FILE_POS, &vec![65; FILE_MAX_LEN]);
+        let test_packet =
+            TestPacket::new_valid_bootp_packet().set(FILE_POS, &vec![65; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();

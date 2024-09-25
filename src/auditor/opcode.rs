@@ -242,7 +242,7 @@ mod tests {
             metric::*,
             opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor},
         },
-        proto::{bootp::OPCODE_POS, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket},
+        proto::{bootp::OPCODE_POS, dhcp::v4::ReceivedPacket, tests::common::TestPacket},
     };
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
     fn opcode_total_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
         let mut auditor = OpCodeTotalAuditor::from_metrics_store(&metrics_store);
-        let test_packet = TestBootpPacket::new();
+        let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
         // Audit 5 request packets.
@@ -452,7 +452,7 @@ mod tests {
     fn opcode_stream_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
         let mut auditor = OpCodeStreamAuditor::from_metrics_store(&metrics_store);
-        let test_packet = TestBootpPacket::new();
+        let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.

@@ -222,7 +222,7 @@ mod tests {
 
     use super::Analyzer;
     use crate::auditor::metric::*;
-    use crate::proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestBootpPacket};
+    use crate::proto::{bootp::*, dhcp::v4::ReceivedPacket, tests::common::TestPacket};
 
     use endure_lib::capture::{self, PacketWrapper};
 
@@ -391,7 +391,7 @@ mod tests {
         let mut analyzer = Analyzer::create_for_listener();
         analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
         for i in 0..10 {
-            let test_packet = TestBootpPacket::new();
+            let test_packet = TestPacket::new_valid_bootp_packet();
             let test_packet = test_packet
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
@@ -457,7 +457,7 @@ mod tests {
         let mut registry = Registry::default();
         registry.register_collector(Box::new(analyzer.clone()));
         for i in 0..10 {
-            let test_packet = TestBootpPacket::new();
+            let test_packet = TestPacket::new_valid_bootp_packet();
             let test_packet = test_packet
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
