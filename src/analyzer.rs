@@ -225,7 +225,7 @@ impl AnalyzerState {
     ///
     /// - `packet` - a received unparsed DHCPv4 packet
     async fn audit_dhcpv4(&self, packet: &v4::RawPacket) {
-        let mut packet = packet.into_parsable();
+        let mut packet = packet.into_shared_parsable();
         for auditor in self.dhcpv4_auditors.iter() {
             auditor.write().await.audit(&mut packet);
         }

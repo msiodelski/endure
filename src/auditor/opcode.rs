@@ -56,8 +56,8 @@ impl Default for OpCodeTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
-    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
-        match packet.opcode() {
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+        match packet.write().unwrap().opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
                     self.message_count.increase(0);
@@ -172,8 +172,8 @@ impl Default for OpCodeStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
-    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
-        match packet.opcode() {
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+        match packet.write().unwrap().opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
                     self.opcodes.increase(0usize);
@@ -264,7 +264,7 @@ mod tests {
         let mut auditor = OpCodeTotalAuditor::from_metrics_store(&metrics_store);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         // Audit 5 request packets.
         for _ in 0..5 {
             auditor.audit(packet);
@@ -323,7 +323,7 @@ mod tests {
         // Audit 3 reply packets. Now we have 8 packets audited (5 are requests and
         // 3 are replies).
         let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
             auditor.audit(packet);
         }
@@ -380,7 +380,7 @@ mod tests {
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (5 requests, 3 replies and 2 invalid).
         let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
             auditor.audit(packet);
         }
@@ -454,7 +454,7 @@ mod tests {
         let mut auditor = OpCodeStreamAuditor::from_metrics_store(&metrics_store);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.
         for _ in 0..5 {
             auditor.audit(packet);
@@ -489,7 +489,7 @@ mod tests {
         // Audit 3 reply packets. Now we have 8 packets audited (62.5% are requests and 37.5%
         // are replies).
         let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
             auditor.audit(packet);
         }
@@ -522,7 +522,7 @@ mod tests {
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (50% of requests, 30% of replies and 20% invalid).
         let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
+        let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
             auditor.audit(packet);
         }
