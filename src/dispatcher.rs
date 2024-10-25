@@ -21,10 +21,7 @@
 //! dispatcher.dispatch().await.unwrap();
 //! ```
 
-use std::{
-    io::stdout,
-    sync::{Arc, Mutex},
-};
+use std::{io::stdout, sync::Arc};
 
 use actix_web::{get, web, App, HttpResponse, HttpServer, Responder, Result};
 use csv::{Writer, WriterBuilder};
@@ -270,7 +267,7 @@ impl Dispatcher {
     ///   CSV writer.
     /// - `writer` - a CSV writer instance in one of the two possible variants
     ///   (i.e., [`Writer<stdout>`] or [`Writer<File>`]).
-    fn enable_csv_reports<T>(&self, analyzer: Arc<Mutex<Analyzer>>, mut writer: Writer<T>)
+    fn enable_csv_reports<T>(&self, analyzer: Arc<Analyzer>, mut writer: Writer<T>)
     where
         T: std::io::Write + Send + 'static,
     {
@@ -280,9 +277,8 @@ impl Dispatcher {
                 interval.tick().await;
                 // Write the CSV report into a file or stdout.
                 let _ = analyzer
-                    .lock()
-                    .unwrap()
                     .current_dhcpv4_metrics()
+                    .await
                     .write()
                     .unwrap()
                     .serialize_csv(&mut writer);
@@ -299,16 +295,15 @@ impl Dispatcher {
     ///
     /// - `analyzer` - an analyzer instance providing the metrics for the
     ///   CSV writer.
-    fn enable_sse_reports(&self, analyzer: Arc<Mutex<Analyzer>>) {
+    fn enable_sse_reports(&self, analyzer: Arc<Analyzer>) {
         let event_gateway = self.event_gateway.clone();
         let mut interval = tokio::time::interval(time::Duration::from_secs(self.report_interval));
         let report_future = async move {
             loop {
                 interval.tick().await;
                 let metrics_store: MetricsStore = analyzer
-                    .lock()
-                    .unwrap()
                     .current_dhcpv4_metrics()
+                    .await
                     .write()
                     .unwrap()
                     .clone();
@@ -338,8 +333,12 @@ impl Dispatcher {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_generic_auditors(&AuditProfile::LiveStreamFull);
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_generic_auditors(&AuditProfile::LiveStreamFull)
+            .await;
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
 
         // Start the HTTP server exporting the metrics to Prometheus if a
         // user has specified the metrics endpoint address.
@@ -353,7 +352,7 @@ impl Dispatcher {
         // Check if the user has specified the output location for the CSV reports.
         // In this case, it opens a writer for and runs an asynchronous task writing
         // the periodic reports.
-        let analyzer = Arc::new(Mutex::new(analyzer));
+        let analyzer = Arc::new(analyzer);
         if let Some(csv_output) = &self.csv_output {
             match csv_output {
                 // Write to stdout.
@@ -394,7 +393,7 @@ impl Dispatcher {
         // Receive packets from the workers of the channel.
         tokio::spawn(async move {
             while let Some(packet) = rx.recv().await {
-                analyzer.lock().unwrap().receive(packet)
+                analyzer.clone().async_receive(packet).await;
             }
         });
 
@@ -478,7 +477,9 @@ mod tests {
     #[tokio::test]
     async fn encode_prometheus_metrics() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let registry_wrapper = RegistryWrapper::new(analyzer);
         let result = registry_wrapper.http_encode_metrics().await;
         assert!(result.is_ok());

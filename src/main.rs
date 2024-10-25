@@ -26,5 +26,5 @@ pub mod sse;
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    cli.run();
+    cli.run().await;
 }

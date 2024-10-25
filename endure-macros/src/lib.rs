@@ -207,7 +207,7 @@ pub fn cond_add_auditor(input: TokenStream) -> TokenStream {
 
     TokenStream::from(quote!(
         if #auditor_name::has_audit_profile(audit_profile) {
-            auditors.push(Box::new(#auditor_name::from_metrics_store(&self.metrics_store)));
+            auditors.push(Arc::new(RwLock::new(Box::new(#auditor_name::from_metrics_store(&self.metrics_store)))));
         }
     ))
 }

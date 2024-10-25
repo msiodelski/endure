@@ -1,7 +1,8 @@
 //! `analyzer` is a module containing the packet analysis and reporting logic.
 
-use std::sync::Mutex;
+use futures::executor::block_on;
 use std::{fmt::Debug, sync::Arc};
+use tokio::sync::RwLock;
 
 use endure_lib::capture::{self, PacketWrapper};
 use endure_lib::metric::FromMetricsStore;
@@ -40,30 +41,21 @@ use prometheus_client::collector::Collector;
 /// for the auditor type.
 #[derive(Clone, Debug)]
 pub struct Analyzer {
-    auditors: Arc<Mutex<AnalyzerAuditorsState>>,
-    metrics_store: SharedMetricsStore,
-}
-
-#[derive(Debug, Default)]
-struct AnalyzerAuditorsState {
-    generic_auditors: Vec<Box<dyn GenericPacketAuditor>>,
-    dhcpv4_auditors: Vec<Box<dyn DHCPv4PacketAuditor>>,
+    state: Arc<RwLock<AnalyzerState>>,
 }
 
 impl Analyzer {
     /// Instantiates the [`Analyzer`] for live capture.
     pub fn create_for_listener() -> Self {
         Self {
-            auditors: Arc::new(Mutex::new(AnalyzerAuditorsState::default())),
-            metrics_store: MetricsStore::new().with_timestamp().to_shared(),
+            state: Arc::new(RwLock::new(AnalyzerState::create_for_listener())),
         }
     }
 
     /// Instantiates the [`Analyzer`] for capture file.
     pub fn create_for_reader() -> Self {
         Self {
-            auditors: Arc::new(Mutex::new(AnalyzerAuditorsState::default())),
-            metrics_store: MetricsStore::new().to_shared(),
+            state: Arc::new(RwLock::new(AnalyzerState::create_for_reader())),
         }
     }
 
@@ -77,9 +69,8 @@ impl Analyzer {
     ///
     /// - `audit_profile` - auditors belonging to this profile will be enabled.
     ///
-    pub fn add_generic_auditors(&mut self, audit_profile: &AuditProfile) {
-        let auditors = &mut self.auditors.lock().unwrap().generic_auditors;
-        cond_add_auditor!(PacketTimeAuditor);
+    pub async fn add_generic_auditors(&mut self, audit_profile: &AuditProfile) {
+        self.state.write().await.add_generic_auditors(audit_profile);
     }
 
     /// Installs DHCPv4 packet auditors for the specified [`AuditProfile`].
@@ -88,12 +79,8 @@ impl Analyzer {
     ///
     /// - `audit_profile` - auditors belonging to this profile will be enabled.
     ///
-    pub fn add_dhcpv4_auditors(&mut self, audit_profile: &AuditProfile) {
-        let auditors = &mut self.auditors.lock().unwrap().dhcpv4_auditors;
-        cond_add_auditor!(OpCodeTotalAuditor);
-        cond_add_auditor!(OpCodeStreamAuditor);
-        cond_add_auditor!(RetransmissionTotalAuditor);
-        cond_add_auditor!(RetransmissionStreamAuditor);
+    pub async fn add_dhcpv4_auditors(&mut self, audit_profile: &AuditProfile) {
+        self.state.write().await.add_dhcpv4_auditors(audit_profile);
     }
 
     /// Runs analysis of the received packet.
@@ -104,52 +91,23 @@ impl Analyzer {
     /// # Parameters
     ///
     /// - `packet` - a wrapper containing the captured packet and its metadata
-    pub fn receive(&mut self, packet: PacketWrapper) {
-        // Run protocol-independent audit.
-        self.audit_generic(&packet);
-
-        // Run protocol-specific audit.
-        match packet.filter {
-            Some(filter) => match filter.get_proto() {
-                Some(capture::Proto::Bootp) => {
-                    let packet_payload = packet.payload();
-                    match packet_payload {
-                        Ok(packet_payload) => {
-                            let packet_payload = v4::ReceivedPacket::new(&packet_payload);
-                            self.audit_dhcpv4(&packet_payload);
-                        }
-                        // For now we ignore unsupported data links or truncated packets.
-                        _ => {}
-                    }
-                }
-                _ => {}
-            },
-            None => {}
-        }
+    pub async fn receive(&self, packet: PacketWrapper) {
+        self.state.read().await.receive(packet).await;
     }
 
-    /// Runs generic auditors for the received packet.
+    /// Runs analysis of the received packet asynchronously.
+    ///
+    /// It checks the packet type and picks appropriate set of auditors
+    /// for the analysis.
     ///
     /// # Parameters
     ///
-    /// - `packet` - a received unparsed packet including metadata.
-    ///
-    fn audit_generic(&mut self, packet: &PacketWrapper) {
-        for auditor in self.auditors.lock().unwrap().generic_auditors.iter_mut() {
-            auditor.audit(packet);
-        }
-    }
-
-    /// Audits a DHCPv4 packet.
-    ///
-    /// # Parameters
-    ///
-    /// - `packet` - a received unparsed DHCPv4 packet
-    fn audit_dhcpv4(&mut self, packet: &v4::RawPacket) {
-        let mut packet = packet.into_parsable();
-        for auditor in self.auditors.lock().unwrap().dhcpv4_auditors.iter_mut() {
-            auditor.audit(&mut packet);
-        }
+    /// - `packet` - a wrapper containing the captured packet and its metadata
+    pub async fn async_receive(&self, packet: PacketWrapper) {
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            state.read().await.receive(packet).await;
+        });
     }
 
     /// Collects and teturns the current metrics from all generic and
@@ -161,15 +119,8 @@ impl Analyzer {
     /// available to an external reader (e.g., to append the metrics as a
     /// row of a CSV file or to a Prometheus exporter).
     ///
-    pub fn current_dhcpv4_metrics(&self) -> SharedMetricsStore {
-        let mut auditors = self.auditors.lock().unwrap();
-        for auditor in auditors.generic_auditors.iter_mut() {
-            auditor.collect_metrics();
-        }
-        for auditor in auditors.dhcpv4_auditors.iter_mut() {
-            auditor.collect_metrics();
-        }
-        self.metrics_store.clone()
+    pub async fn current_dhcpv4_metrics(&self) -> SharedMetricsStore {
+        self.state.read().await.current_dhcpv4_metrics().await
     }
 
     /// Returns current metrics in an HTTP response.
@@ -183,6 +134,9 @@ impl Analyzer {
     pub async fn http_encode_to_json(&self) -> actix_web::Result<HttpResponse> {
         let mut writer = Vec::new();
         let result = self
+            .state
+            .read()
+            .await
             .metrics_store
             .read()
             .unwrap()
@@ -198,12 +152,143 @@ impl Analyzer {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct AnalyzerState {
+    generic_auditors: Vec<Arc<RwLock<Box<dyn GenericPacketAuditor>>>>,
+    dhcpv4_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4PacketAuditor>>>>,
+    metrics_store: SharedMetricsStore,
+}
+
+impl AnalyzerState {
+    /// Instantiates the [`Analyzer`] for live capture.
+    pub fn create_for_listener() -> Self {
+        Self {
+            generic_auditors: Vec::default(),
+            dhcpv4_auditors: Vec::default(),
+            metrics_store: MetricsStore::new().with_timestamp().to_shared(),
+        }
+    }
+
+    /// Instantiates the [`Analyzer`] for capture file.
+    pub fn create_for_reader() -> Self {
+        Self {
+            generic_auditors: Vec::default(),
+            dhcpv4_auditors: Vec::default(),
+            metrics_store: MetricsStore::new().to_shared(),
+        }
+    }
+
+    /// Installs auditors generic packet auditors for the specified
+    /// [`AuditProfile`].
+    ///
+    /// Generic auditors are not tied to any particular protocol. They typically
+    /// analyze the metadata in the received packet's header.
+    ///
+    /// # Parameters
+    ///
+    /// - `audit_profile` - auditors belonging to this profile will be enabled.
+    ///
+    pub fn add_generic_auditors(&mut self, audit_profile: &AuditProfile) {
+        let auditors = &mut self.generic_auditors;
+        cond_add_auditor!(PacketTimeAuditor);
+    }
+
+    /// Installs DHCPv4 packet auditors for the specified [`AuditProfile`].
+    ///
+    /// # Parameters
+    ///
+    /// - `audit_profile` - auditors belonging to this profile will be enabled.
+    ///
+    pub fn add_dhcpv4_auditors(&mut self, audit_profile: &AuditProfile) {
+        let auditors = &mut self.dhcpv4_auditors;
+        cond_add_auditor!(OpCodeTotalAuditor);
+        cond_add_auditor!(OpCodeStreamAuditor);
+        cond_add_auditor!(RetransmissionTotalAuditor);
+        cond_add_auditor!(RetransmissionStreamAuditor);
+    }
+
+    /// Runs generic auditors for the received packet.
+    ///
+    /// # Parameters
+    ///
+    /// - `packet` - a received unparsed packet including metadata.
+    ///
+    async fn audit_generic(&self, packet: &PacketWrapper) {
+        for auditor in self.generic_auditors.iter() {
+            auditor.write().await.audit(packet);
+        }
+    }
+
+    /// Audits a DHCPv4 packet.
+    ///
+    /// # Parameters
+    ///
+    /// - `packet` - a received unparsed DHCPv4 packet
+    async fn audit_dhcpv4(&self, packet: &v4::RawPacket) {
+        let mut packet = packet.into_parsable();
+        for auditor in self.dhcpv4_auditors.iter() {
+            auditor.write().await.audit(&mut packet);
+        }
+    }
+
+    /// Runs analysis of the received packet.
+    ///
+    /// It checks the packet type and picks appropriate set of auditors
+    /// for the analysis.
+    ///
+    /// # Parameters
+    ///
+    /// - `packet` - a wrapper containing the captured packet and its metadata
+    pub async fn receive(&self, packet: PacketWrapper) {
+        // Run protocol-independent audit.
+        self.audit_generic(&packet).await;
+
+        // Run protocol-specific audit.
+        match packet.filter {
+            Some(filter) => match filter.get_proto() {
+                Some(capture::Proto::Bootp) => {
+                    let packet_payload = packet.payload();
+                    match packet_payload {
+                        Ok(packet_payload) => {
+                            let packet_payload = v4::ReceivedPacket::new(&packet_payload);
+                            self.audit_dhcpv4(&packet_payload).await;
+                        }
+                        // For now we ignore unsupported data links or truncated packets.
+                        _ => {}
+                    }
+                }
+                _ => {}
+            },
+            None => {}
+        }
+    }
+
+    /// Collects and returns the current metrics from all generic and
+    /// DHCPv4 auditors.
+    ///
+    /// # Usage
+    ///
+    /// Typically, this function is called periodically to make the metrics
+    /// available to an external reader (e.g., to append the metrics as a
+    /// row of a CSV file or to a Prometheus exporter).
+    ///
+    pub async fn current_dhcpv4_metrics(&self) -> SharedMetricsStore {
+        for auditor in self.generic_auditors.iter() {
+            auditor.write().await.collect_metrics();
+        }
+        for auditor in self.dhcpv4_auditors.iter() {
+            auditor.write().await.collect_metrics();
+        }
+        self.metrics_store.clone()
+    }
+}
+
 impl Collector for Analyzer {
     fn encode(
         &self,
         encoder: prometheus_client::encoding::DescriptorEncoder,
     ) -> Result<(), std::fmt::Error> {
-        self.current_dhcpv4_metrics()
+        block_on(self.current_dhcpv4_metrics())
             .read()
             .unwrap()
             .encode(encoder)
@@ -213,7 +298,7 @@ impl Collector for Analyzer {
 #[cfg(test)]
 mod tests {
 
-    use crate::analyzer::AuditProfile;
+    use crate::analyzer::{AnalyzerState, AuditProfile};
     use actix_web::{body::to_bytes, web::Bytes};
     use assert_json::assert_json;
     use chrono::{DateTime, Local};
@@ -236,10 +321,12 @@ mod tests {
         }
     }
 
-    #[test]
-    fn analyzer_receive_dhcp4_packet_ethernet() {
+    #[tokio::test]
+    async fn analyzer_receive_dhcp4_packet_ethernet() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let mut packet_wrapper = PacketWrapper {
             filter: Some(capture::Filter::new().bootp(10067)),
             header: PacketHeader {
@@ -257,9 +344,14 @@ mod tests {
         // to 1. It makes the packet a BootRequest. If it is successfully audited
         // we should see the metrics to be bumped up.
         packet_wrapper.data[capture::ETHERNET_IP_UDP_HEADER_LENGTH] = 1;
-        analyzer.receive(packet_wrapper);
+        analyzer.receive(packet_wrapper).await;
 
-        let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
         let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
@@ -268,10 +360,12 @@ mod tests {
         assert_eq!(100.0, metric);
     }
 
-    #[test]
-    fn analyzer_receive_dhcp4_packet_loopback() {
+    #[tokio::test]
+    async fn analyzer_receive_dhcp4_packet_loopback() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let mut packet_wrapper = PacketWrapper {
             filter: Some(capture::Filter::new().bootp(10067)),
             header: PacketHeader {
@@ -289,9 +383,14 @@ mod tests {
         // to 1. It makes the packet a BootRequest. If it is successfully audited
         // we should see the metrics to be bumped up.
         packet_wrapper.data[capture::LOOPBACK_IP_UDP_HEADER_LENGTH] = 1;
-        analyzer.receive(packet_wrapper);
+        analyzer.receive(packet_wrapper).await;
 
-        let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
         let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
@@ -300,10 +399,12 @@ mod tests {
         assert_eq!(100.0, metric);
     }
 
-    #[test]
-    fn analyzer_receive_dhcp4_packet_non_matching_filter() {
+    #[tokio::test]
+    async fn analyzer_receive_dhcp4_packet_non_matching_filter() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let mut packet_wrapper = PacketWrapper {
             filter: Some(capture::Filter::new().udp()),
             header: PacketHeader {
@@ -318,20 +419,27 @@ mod tests {
             data_link: Linktype::ETHERNET,
         };
         packet_wrapper.data[capture::ETHERNET_IP_UDP_HEADER_LENGTH] = 1;
-        analyzer.receive(packet_wrapper);
+        analyzer.receive(packet_wrapper).await;
 
         // The packet shouldn't be analyzed and the metrics should not
         // be updated.
-        let metrics_store = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics_store = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
         let metric = metrics_store.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
 
-    #[test]
-    fn analyzer_receive_dhcp4_packet_truncated() {
+    #[tokio::test]
+    async fn analyzer_receive_dhcp4_packet_truncated() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let packet_wrapper = PacketWrapper {
             filter: Some(capture::Filter::new().udp()),
             header: PacketHeader {
@@ -345,18 +453,23 @@ mod tests {
             data: vec![0; 15],
             data_link: Linktype::ETHERNET,
         };
-        analyzer.receive(packet_wrapper);
+        analyzer.receive(packet_wrapper).await;
 
-        let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
         let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
 
-    #[test]
-    fn analyzer_generic_audit() {
+    #[tokio::test]
+    async fn analyzer_generic_audit() {
         const BASE_TIME: i64 = 1711535347;
-        let mut analyzer = Analyzer::create_for_listener();
+        let mut analyzer = AnalyzerState::create_for_listener();
         analyzer.add_generic_auditors(&AuditProfile::PcapStreamFull);
         for i in 0..10 {
             let packet = PacketWrapper {
@@ -372,9 +485,14 @@ mod tests {
                 data: vec![0; 100],
                 data_link: Linktype::ETHERNET,
             };
-            analyzer.audit_generic(&packet);
+            analyzer.audit_generic(&packet).await;
         }
-        let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
 
         let packet_wrapper_date_time = metrics.get(METRIC_PACKET_TIME_DATE_TIME);
         assert!(packet_wrapper_date_time.is_some());
@@ -386,9 +504,9 @@ mod tests {
         assert_eq!(expected_time.to_rfc3339(), packet_wrapper_date_time);
     }
 
-    #[test]
-    fn analyzer_audit_dhcpv4() {
-        let mut analyzer = Analyzer::create_for_listener();
+    #[tokio::test]
+    async fn analyzer_audit_dhcpv4() {
+        let mut analyzer = AnalyzerState::create_for_listener();
         analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
         for i in 0..10 {
             let test_packet = TestPacket::new_valid_bootp_packet();
@@ -396,9 +514,14 @@ mod tests {
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = ReceivedPacket::new(&test_packet.get());
-            analyzer.audit_dhcpv4(&packet);
+            analyzer.audit_dhcpv4(&packet).await;
         }
-        let metrics = analyzer.current_dhcpv4_metrics().read().unwrap().clone();
+        let metrics = analyzer
+            .current_dhcpv4_metrics()
+            .await
+            .read()
+            .unwrap()
+            .clone();
 
         let opcode_boot_replies_percent = metrics.get(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100);
         assert!(opcode_boot_replies_percent.is_some());
@@ -450,10 +573,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn encode_to_prometheus() {
+    #[tokio::test]
+    async fn encode_to_prometheus() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let mut registry = Registry::default();
         registry.register_collector(Box::new(analyzer.clone()));
         for i in 0..10 {
@@ -462,7 +587,7 @@ mod tests {
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = ReceivedPacket::new(&test_packet.get());
-            analyzer.audit_dhcpv4(&packet);
+            analyzer.state.read().await.audit_dhcpv4(&packet).await;
         }
         let mut buffer = String::new();
         encode(&mut buffer, &registry).unwrap();
@@ -499,7 +624,9 @@ mod tests {
     #[tokio::test]
     async fn analyzer_http_encode_to_json() {
         let mut analyzer = Analyzer::create_for_listener();
-        analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
+        analyzer
+            .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
+            .await;
         let result = analyzer.http_encode_to_json().await;
         assert!(result.is_ok());
         let body = to_bytes(result.unwrap().into_body()).await.unwrap();
