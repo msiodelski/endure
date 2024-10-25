@@ -73,7 +73,7 @@ pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
     /// # Parameters
     ///
     /// - `packet` - a partially parsed `DHCPv4` or `BOOTP` packet to be audited
-    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket);
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket);
 
     /// Collects metrics from the auditor in the metrics store.
     ///

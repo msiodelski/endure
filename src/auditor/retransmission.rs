@@ -52,7 +52,8 @@ impl Default for RetransmissionTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
-    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+        let mut packet = packet.write().unwrap();
         let opcode = packet.opcode();
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
             return;
@@ -153,7 +154,8 @@ impl Default for RetransmissionStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionStreamAuditor {
-    fn audit(&mut self, packet: &mut v4::PartiallyParsedPacket) {
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+        let mut packet = packet.write().unwrap();
         let opcode = packet.opcode();
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
             return;
@@ -264,10 +266,9 @@ mod tests {
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
             .set(SECS_POS, &vec![0, 0]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
 
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
-        auditor.audit(packet);
+        auditor.audit(&mut ReceivedPacket::new(test_packet.get()).into());
         auditor.collect_metrics();
 
         let metrics_store_ref = metrics_store.clone();
@@ -302,8 +303,7 @@ mod tests {
             let test_packet = TestPacket::new_valid_bootp_packet()
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
-            let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
-            auditor.audit(packet);
+            auditor.audit(&mut ReceivedPacket::new(&test_packet.get()).into());
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.
         auditor.collect_metrics();
@@ -354,10 +354,8 @@ mod tests {
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
             .set(SECS_POS, &vec![0, 0]);
-        let packet = &mut ReceivedPacket::new(test_packet.get()).into_parsable();
-
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
-        auditor.audit(packet);
+        auditor.audit(&mut ReceivedPacket::new(test_packet.get()).into());
         auditor.collect_metrics();
 
         let metrics_store_ref = metrics_store.clone();
@@ -392,8 +390,7 @@ mod tests {
             let test_packet = TestPacket::new_valid_bootp_packet()
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
-            let packet = &mut ReceivedPacket::new(&test_packet.get()).into_parsable();
-            auditor.audit(packet);
+            auditor.audit(&mut ReceivedPacket::new(&test_packet.get()).into());
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.
         auditor.collect_metrics();

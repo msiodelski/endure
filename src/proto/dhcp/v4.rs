@@ -12,6 +12,7 @@ use std::{
     cmp::Ordering,
     collections::{hash_map::Entry, HashMap},
     net::Ipv4Addr,
+    sync::{Arc, RwLock},
 };
 
 use thiserror::Error;
@@ -280,6 +281,9 @@ pub type RawPacket = ReceivedPacket<RawState>;
 /// A shorthand type for the partially parsed packet.
 pub type PartiallyParsedPacket = ReceivedPacket<PartiallyParsedState>;
 
+/// A shareable and lockable instance of the [`PartiallyParsedPacket`].
+pub type SharedPartiallyParsedPacket = Arc<RwLock<PartiallyParsedPacket>>;
+
 impl ReceivedPacket<RawState> {
     /// Creates a new raw packet instance.
     ///
@@ -299,7 +303,11 @@ impl ReceivedPacket<RawState> {
         bootp::ReceivedPacket::new(&self.state.data)
     }
 
-    /// Transitions the packet from the [RawState] to the [PartiallyParsedState].
+    /// Transitions the packet from the [`RawState`] to the [`PartiallyParsedState`].
+    ///
+    /// # Result
+    ///
+    /// It returns non-shared, non-lockable, parseable packet instance.
     pub fn into_parsable(&self) -> ReceivedPacket<PartiallyParsedState> {
         let bootp = bootp::ReceivedPacket::new(&self.state.data);
         ReceivedPacket::<PartiallyParsedState> {
@@ -309,6 +317,27 @@ impl ReceivedPacket<RawState> {
                 options_cursor: OPTIONS_POS,
             },
         }
+    }
+
+    /// Transitions the packet from the [`RawState`] to the [`PartiallyParsedState`].
+    ///
+    /// # Result
+    ///
+    /// It returns shared, lockable, parseable packet instance.
+    pub fn into_shared_parsable(&self) -> SharedPartiallyParsedPacket {
+        Arc::new(RwLock::new(self.into_parsable()))
+    }
+}
+
+impl Into<PartiallyParsedPacket> for ReceivedPacket<RawState> {
+    fn into(self) -> PartiallyParsedPacket {
+        self.into_parsable()
+    }
+}
+
+impl Into<SharedPartiallyParsedPacket> for ReceivedPacket<RawState> {
+    fn into(self) -> SharedPartiallyParsedPacket {
+        self.into_shared_parsable()
     }
 }
 
