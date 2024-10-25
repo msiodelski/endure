@@ -111,7 +111,7 @@ impl PcapProcessor {
     /// different stages of the capture file processing. Typically It may be
     /// an issue with reading a capture file or writing a report to a file.
     ///
-    pub fn run(self) -> Result<(), ProcessorError> {
+    pub async fn run(self) -> Result<(), ProcessorError> {
         // Reader configuration is independent from the output format, so
         // let's create the reader first.
         let mut reader = self
@@ -126,12 +126,20 @@ impl PcapProcessor {
         let mut analyzer = Analyzer::create_for_reader();
         match self.report_format {
             ReportFormat::Csv(ReportType::Stream) => {
-                analyzer.add_generic_auditors(&AuditProfile::PcapStreamFull);
-                analyzer.add_dhcpv4_auditors(&AuditProfile::PcapStreamFull);
+                analyzer
+                    .add_generic_auditors(&AuditProfile::PcapStreamFull)
+                    .await;
+                analyzer
+                    .add_dhcpv4_auditors(&AuditProfile::PcapStreamFull)
+                    .await;
             }
             ReportFormat::Json | ReportFormat::Csv(ReportType::Final) => {
-                analyzer.add_generic_auditors(&AuditProfile::PcapFinalFull);
-                analyzer.add_dhcpv4_auditors(&AuditProfile::PcapFinalFull);
+                analyzer
+                    .add_generic_auditors(&AuditProfile::PcapFinalFull)
+                    .await;
+                analyzer
+                    .add_dhcpv4_auditors(&AuditProfile::PcapFinalFull)
+                    .await;
             }
         }
 
@@ -148,14 +156,16 @@ impl PcapProcessor {
                         &mut analyzer,
                         &mut reader,
                         &mut writer,
-                    );
+                    )
+                    .await;
                 }
                 ReportFormat::Json => {
                     return PcapProcessor::run_with_json_writer(
                         &mut analyzer,
                         &mut reader,
                         &mut stdout(),
-                    );
+                    )
+                    .await;
                 }
             },
             OutputDest::File(output) => match self.report_format {
@@ -173,7 +183,8 @@ impl PcapProcessor {
                         &mut analyzer,
                         &mut reader,
                         &mut writer,
-                    );
+                    )
+                    .await;
                 }
                 ReportFormat::Json => {
                     let mut writer = File::create(output.clone()).map_err(|err| {
@@ -186,7 +197,8 @@ impl PcapProcessor {
                         &mut analyzer,
                         &mut reader,
                         &mut writer,
-                    );
+                    )
+                    .await;
                 }
             },
         }
@@ -203,7 +215,7 @@ impl PcapProcessor {
     /// - `reader` - a reader instance associated with a capture file.
     /// - `writer` - a writer instance associated with `stdout` or an output file.
     ///
-    fn run_with_csv_writer<T>(
+    async fn run_with_csv_writer<T>(
         report_type: ReportType,
         analyzer: &mut Analyzer,
         reader: &mut Reader<Active>,
@@ -220,12 +232,13 @@ impl PcapProcessor {
                     if report_type == ReportType::Stream {
                         count += 1;
                     }
-                    analyzer.receive(packet);
+                    analyzer.receive(packet).await;
                     // Print the metrics every 100 packets.
                     if count >= 100 {
                         count = 0;
                         analyzer
                             .current_dhcpv4_metrics()
+                            .await
                             .write()
                             .unwrap()
                             .serialize_csv(writer)
@@ -237,6 +250,7 @@ impl PcapProcessor {
                 Err(ReaderError::Eof {}) => {
                     analyzer
                         .current_dhcpv4_metrics()
+                        .await
                         .write()
                         .unwrap()
                         .serialize_csv(writer)
@@ -264,7 +278,7 @@ impl PcapProcessor {
     /// - `reader` - a reader instance associated with a capture file.
     /// - `writer` - a writer instance associated with `stdout` or an output file.
     ///
-    fn run_with_json_writer(
+    async fn run_with_json_writer(
         analyzer: &mut Analyzer,
         reader: &mut Reader<Active>,
         writer: &mut dyn io::Write,
@@ -273,11 +287,12 @@ impl PcapProcessor {
             let result = reader.read_next();
             match result {
                 Ok(packet) => {
-                    analyzer.receive(packet);
+                    analyzer.receive(packet).await;
                 }
                 Err(ReaderError::Eof {}) => {
                     analyzer
                         .current_dhcpv4_metrics()
+                        .await
                         .read()
                         .unwrap()
                         .serialize_json_pretty(writer)
@@ -316,8 +331,8 @@ mod tests {
         path.as_os_str().to_str().unwrap().to_owned()
     }
 
-    #[test]
-    fn pcap_processor_csv_stream() {
+    #[tokio::test]
+    async fn pcap_processor_csv_stream() {
         // Set report location.
         let dir = TempDir::new("test").unwrap();
         let report_path = dir.path().join("reports.csv");
@@ -329,7 +344,7 @@ mod tests {
         processor.output_dest = OutputDest::File(report_path_str);
 
         // Parse the pcap file.
-        let result = processor.run();
+        let result = processor.run().await;
         assert!(result.is_ok());
 
         // Make sure the report has been created.
@@ -347,8 +362,8 @@ mod tests {
         assert_eq!(1, reader.into_records().count())
     }
 
-    #[test]
-    fn pcap_processor_csv_final() {
+    #[tokio::test]
+    async fn pcap_processor_csv_final() {
         // Set report location.
         let dir = TempDir::new("test").unwrap();
         let report_path = dir.path().join("reports.csv");
@@ -361,7 +376,7 @@ mod tests {
         processor.report_format = ReportFormat::Csv(ReportType::Final);
 
         // Parse the pcap file.
-        let result = processor.run();
+        let result = processor.run().await;
         assert!(result.is_ok());
 
         // Make sure the report has been created.
@@ -378,8 +393,8 @@ mod tests {
         assert_eq!(1, reader.into_records().count())
     }
 
-    #[test]
-    fn pcap_processor_json() {
+    #[tokio::test]
+    async fn pcap_processor_json() {
         // Set report location.
         let dir = TempDir::new("test").unwrap();
         let report_path = dir.path().join("reports.json");
@@ -392,7 +407,7 @@ mod tests {
         processor.report_format = ReportFormat::Json;
 
         // Parse the pcap file.
-        let result = processor.run();
+        let result = processor.run().await;
         assert!(result.is_ok());
 
         // Make sure the report has been created.

@@ -25,7 +25,6 @@ use clap::{
     error::{ContextKind, ContextValue, ErrorKind},
     Args, CommandFactory, Parser, Subcommand,
 };
-use futures::executor::block_on;
 
 /// A structure holding parsed program arguments.
 #[derive(Parser)]
@@ -175,13 +174,13 @@ impl Cli {
     /// # Example Usage
     ///
     /// ```rust
-    /// Cli::parse().run();
+    /// Cli::parse().run().await;
     /// ```
     ///
     /// The function blocks for the traffic capturing commands. In that case,
     /// it internally installs a signal handler that can break the capture
     /// when the Ctrl+C pressed.
-    pub fn run(self) {
+    pub async fn run(self) {
         let args = Cli::parse();
         if let Some(commands) = args.commands {
             match commands {
@@ -261,7 +260,7 @@ impl Cli {
                     dispatcher.report_interval = report_interval;
 
                     // Run the dispatcher. It may fail starting the HTTP server or a CSV writer.
-                    let result = block_on(dispatcher.dispatch());
+                    let result = dispatcher.dispatch().await;
                     match result {
                         Err(err) => {
                             eprintln!("{}", err.to_string());
@@ -320,7 +319,7 @@ impl Cli {
                     }
 
                     // Analyze the capture and print the results.
-                    let result = processor.run();
+                    let result = processor.run().await;
                     match result {
                         Ok(()) => exit(0),
                         Err(err) => {
