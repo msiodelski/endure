@@ -76,32 +76,32 @@ impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
     fn collect_metrics(&mut self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REQUESTS_COUNT,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT,
             MetricValue::Int64Value(self.message_count.counter(0)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REPLIES_COUNT,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT,
             MetricValue::Int64Value(self.message_count.counter(1)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_INVALID_COUNT,
+            METRIC_BOOTP_OPCODE_INVALID_COUNT,
             MetricValue::Int64Value(self.message_count.counter(2)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REQUESTS_PERCENT,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
             MetricValue::Float64Value(self.message_count.percentage(0)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REPLIES_PERCENT,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
             MetricValue::Float64Value(self.message_count.percentage(1)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_INVALID_PERCENT,
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
             MetricValue::Float64Value(self.message_count.percentage(2)),
         );
     }
@@ -112,37 +112,37 @@ impl InitMetrics for OpCodeTotalAuditor {
         self.metrics_store = metrics_store.clone();
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REQUESTS_COUNT,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT,
             "Total number of the BootRequest messages.",
             MetricValue::Int64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REPLIES_COUNT,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT,
             "Total number of the BootReply messages.",
             MetricValue::Int64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_INVALID_COUNT,
+            METRIC_BOOTP_OPCODE_INVALID_COUNT,
             "Total number of the invalid messages.",
             MetricValue::Int64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REQUESTS_PERCENT,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
             "Percentage of the BootRequest messages in all messages.",
             MetricValue::Float64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REPLIES_PERCENT,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
             "Percentage of the BootReply messages in all messages.",
             MetricValue::Float64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_INVALID_PERCENT,
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
             "Percentage of the invalid messages in all messages.",
             MetricValue::Float64Value(Default::default()),
         ));
@@ -192,17 +192,17 @@ impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
     fn collect_metrics(&mut self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100,
             MetricValue::Float64Value(self.opcodes.average(0)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_BOOT_REPLIES_PERCENT_100,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100,
             MetricValue::Float64Value(self.opcodes.average(1)),
         );
 
         metrics_store.set_metric_value(
-            METRIC_OPCODE_INVALID_PERCENT_100,
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT_100,
             MetricValue::Float64Value(self.opcodes.average(2)),
         );
     }
@@ -213,19 +213,19 @@ impl InitMetrics for OpCodeStreamAuditor {
         self.metrics_store = metrics_store.clone();
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100,
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100,
             "Percentage of the BootRequest messages in last 100 messages.",
             MetricValue::Float64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_BOOT_REPLIES_PERCENT_100,
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100,
             "Percentage of the BootReply messages in last 100 messages.",
             MetricValue::Float64Value(Default::default()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_OPCODE_INVALID_PERCENT_100,
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT_100,
             "Percentage of the invalid messages in last 100 messages.",
             MetricValue::Float64Value(Default::default()),
         ));
@@ -277,7 +277,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REQUESTS_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT)
         );
 
         assert_eq!(
@@ -285,7 +285,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REPLIES_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT)
         );
 
         assert_eq!(
@@ -293,7 +293,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_INVALID_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_INVALID_COUNT)
         );
 
         assert_eq!(
@@ -301,7 +301,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT)
         );
 
         assert_eq!(
@@ -309,7 +309,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT)
         );
 
         assert_eq!(
@@ -317,7 +317,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT)
         );
 
         // Audit 3 reply packets. Now we have 8 packets audited (5 are requests and
@@ -334,7 +334,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REQUESTS_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT)
         );
 
         assert_eq!(
@@ -342,7 +342,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REPLIES_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT)
         );
 
         assert_eq!(
@@ -350,7 +350,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_INVALID_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_INVALID_COUNT)
         );
 
         assert_eq!(
@@ -358,7 +358,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT)
         );
 
         assert_eq!(
@@ -366,7 +366,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT)
         );
 
         assert_eq!(
@@ -374,7 +374,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT)
         );
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
@@ -391,7 +391,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REQUESTS_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT)
         );
 
         assert_eq!(
@@ -399,7 +399,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_BOOT_REPLIES_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT)
         );
 
         assert_eq!(
@@ -407,7 +407,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<i64>(METRIC_OPCODE_INVALID_COUNT)
+                .get_metric_value_unwrapped::<i64>(METRIC_BOOTP_OPCODE_INVALID_COUNT)
         );
 
         assert_eq!(
@@ -415,7 +415,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT)
         );
 
         assert_eq!(
@@ -423,7 +423,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT)
         );
 
         assert_eq!(
@@ -431,7 +431,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT)
         );
     }
 
@@ -467,7 +467,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100)
         );
 
         assert_eq!(
@@ -475,7 +475,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100)
         );
 
         assert_eq!(
@@ -483,7 +483,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT_100)
         );
 
         // Audit 3 reply packets. Now we have 8 packets audited (62.5% are requests and 37.5%
@@ -500,7 +500,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100)
         );
 
         assert_eq!(
@@ -508,7 +508,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100)
         );
 
         assert_eq!(
@@ -516,7 +516,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT_100)
         );
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
@@ -533,7 +533,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100)
         );
 
         assert_eq!(
@@ -541,7 +541,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100)
         );
 
         assert_eq!(
@@ -549,7 +549,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_OPCODE_INVALID_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_OPCODE_INVALID_PERCENT_100)
         );
     }
 }

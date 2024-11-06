@@ -15,3 +15,4 @@
 
 pub mod capture;
 pub mod metric;
+pub mod time_wrapper;

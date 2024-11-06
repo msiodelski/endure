@@ -27,6 +27,43 @@ pub const MAGIC_COOKIE_POS: u32 = 236;
 /// DHCPv4 options position in the packet.
 pub const OPTIONS_POS: u32 = 240;
 
+/// DHCPDISCOVER message code.
+pub const MESSAGE_TYPE_DHCPDISCOVER: u8 = 1;
+/// DHCPOFFER message code.
+pub const MESSAGE_TYPE_OFFER: u8 = 2;
+/// DHCPREQUEST message code.
+pub const MESSAGE_TYPE_REQUEST: u8 = 3;
+/// DHCPDECLINE message code.
+pub const MESSAGE_TYPE_DECLINE: u8 = 4;
+/// DHCPACK message code.
+pub const MESSAGE_TYPE_ACK: u8 = 5;
+/// DHCPNAK message code.
+pub const MESSAGE_TYPE_NAK: u8 = 6;
+/// DHCPRELEASE message code.
+pub const MESSAGE_TYPE_RELEASE: u8 = 7;
+/// DHCPINFORM message code.
+pub const MESSAGE_TYPE_INFORM: u8 = 8;
+/// DHCPFORCERENEW message code.
+pub const MESSAGE_TYPE_FORCERENEW: u8 = 9;
+/// DHCPLEASEQUERY message code.
+pub const MESSAGE_TYPE_LEASEQUERY: u8 = 10;
+/// DHCPLEASEUNASSIGNED message code.
+pub const MESSAGE_TYPE_LEASEUNASSIGNED: u8 = 11;
+/// DHCPLEASEUNKNOWN message code.
+pub const MESSAGE_TYPE_LEASEUNKNOWN: u8 = 12;
+/// DHCPLEASEACTIVE message code.
+pub const MESSAGE_TYPE_LEASEACTIVE: u8 = 13;
+/// DHCPBULKLEASEQUERY message code.
+pub const MESSAGE_TYPE_BULKLEASEQUERY: u8 = 14;
+/// DHCPLEASEQUERYDONE message code.
+pub const MESSAGE_TYPE_LEASEQUERYDONE: u8 = 15;
+/// DHCPACTIVELEASEQUERY message code.
+pub const MESSAGE_TYPE_ACTIVELEASEQUERY: u8 = 16;
+/// DHCPLEASEQUERYSTATUS message code.
+pub const MESSAGE_TYPE_LEASEQUERYSTATUS: u8 = 17;
+/// DHCPTLS message code.
+pub const MESSAGE_TYPE_TLS: u8 = 18;
+
 /// Pad option code.
 pub const OPTION_CODE_PAD: u8 = 0;
 /// DHCP Message Type option code.
@@ -59,7 +96,7 @@ pub enum OptionParseError {
 }
 
 /// A structure representing an inbound DHCP option.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReceivedOption {
     /// Option code.
     code: u8,
@@ -134,25 +171,51 @@ pub enum MessageType {
 impl From<u8> for MessageType {
     fn from(raw_code: u8) -> Self {
         match raw_code {
-            1 => MessageType::Discover,
-            2 => MessageType::Offer,
-            3 => MessageType::Request,
-            4 => MessageType::Decline,
-            5 => MessageType::Ack,
-            6 => MessageType::Nak,
-            7 => MessageType::Release,
-            8 => MessageType::Inform,
-            9 => MessageType::ForceRenew,
-            10 => MessageType::LeaseQuery,
-            11 => MessageType::LeaseUnassigned,
-            12 => MessageType::LeaseUnknown,
-            13 => MessageType::LeaseActive,
-            14 => MessageType::BulkLeaseQuery,
-            15 => MessageType::LeaseQueryDone,
-            16 => MessageType::ActiveLeaseQuery,
-            17 => MessageType::LeaseQueryStatus,
-            18 => MessageType::Tls,
+            MESSAGE_TYPE_DHCPDISCOVER => MessageType::Discover,
+            MESSAGE_TYPE_OFFER => MessageType::Offer,
+            MESSAGE_TYPE_REQUEST => MessageType::Request,
+            MESSAGE_TYPE_DECLINE => MessageType::Decline,
+            MESSAGE_TYPE_ACK => MessageType::Ack,
+            MESSAGE_TYPE_NAK => MessageType::Nak,
+            MESSAGE_TYPE_RELEASE => MessageType::Release,
+            MESSAGE_TYPE_INFORM => MessageType::Inform,
+            MESSAGE_TYPE_FORCERENEW => MessageType::ForceRenew,
+            MESSAGE_TYPE_LEASEQUERY => MessageType::LeaseQuery,
+            MESSAGE_TYPE_LEASEUNASSIGNED => MessageType::LeaseUnassigned,
+            MESSAGE_TYPE_LEASEUNKNOWN => MessageType::LeaseUnknown,
+            MESSAGE_TYPE_LEASEACTIVE => MessageType::LeaseActive,
+            MESSAGE_TYPE_BULKLEASEQUERY => MessageType::BulkLeaseQuery,
+            MESSAGE_TYPE_LEASEQUERYDONE => MessageType::LeaseQueryDone,
+            MESSAGE_TYPE_ACTIVELEASEQUERY => MessageType::ActiveLeaseQuery,
+            MESSAGE_TYPE_LEASEQUERYSTATUS => MessageType::LeaseQueryStatus,
+            MESSAGE_TYPE_TLS => MessageType::Tls,
             x => MessageType::Unknown(x),
+        }
+    }
+}
+
+impl Into<u8> for MessageType {
+    fn into(self) -> u8 {
+        match self {
+            MessageType::Discover => MESSAGE_TYPE_DHCPDISCOVER,
+            MessageType::Offer => MESSAGE_TYPE_OFFER,
+            MessageType::Request => MESSAGE_TYPE_REQUEST,
+            MessageType::Decline => MESSAGE_TYPE_DECLINE,
+            MessageType::Ack => MESSAGE_TYPE_ACK,
+            MessageType::Nak => MESSAGE_TYPE_NAK,
+            MessageType::Release => MESSAGE_TYPE_RELEASE,
+            MessageType::Inform => MESSAGE_TYPE_INFORM,
+            MessageType::ForceRenew => MESSAGE_TYPE_FORCERENEW,
+            MessageType::LeaseQuery => MESSAGE_TYPE_LEASEQUERY,
+            MessageType::LeaseUnassigned => MESSAGE_TYPE_LEASEUNASSIGNED,
+            MessageType::LeaseUnknown => MESSAGE_TYPE_LEASEUNKNOWN,
+            MessageType::LeaseActive => MESSAGE_TYPE_LEASEACTIVE,
+            MessageType::BulkLeaseQuery => MESSAGE_TYPE_BULKLEASEQUERY,
+            MessageType::LeaseQueryDone => MESSAGE_TYPE_LEASEQUERYDONE,
+            MessageType::ActiveLeaseQuery => MESSAGE_TYPE_ACTIVELEASEQUERY,
+            MessageType::LeaseQueryStatus => MESSAGE_TYPE_LEASEQUERYSTATUS,
+            MessageType::Tls => MESSAGE_TYPE_TLS,
+            MessageType::Unknown(x) => x,
         }
     }
 }
@@ -250,7 +313,7 @@ pub struct RawState {
 /// [PartiallyParsedState]. The cached value is returned the next time the same
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PartiallyParsedState {
     bootp: bootp::ReceivedPacket<bootp::PartiallyParsedState>,
     options: HashMap<u8, ReceivedOption>,
@@ -267,9 +330,9 @@ pub struct PartiallyParsedState {
 ///
 /// A received packet is initially in the [RawState] state. In this state, the packet
 /// is unparsed and exposes no data parsing functions. The packet must be
-/// explicitly transitioned to the [PartiallyParsedState] before parsing and
+/// explicitly transitioned to the [`PartiallyParsedState`] before parsing and
 /// accessing the named data fields carried in the packet.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReceivedPacket<State> {
     /// Packet state.
     state: State,
@@ -601,8 +664,14 @@ mod tests {
     use crate::proto::{
         bootp::{HType, OpCode},
         dhcp::v4::{
-            MessageType, ReceivedPacket, OPTION_CODE_CLIENT_IDENTIFIER,
-            OPTION_CODE_DHCP_MESSAGE_TYPE, OPTION_CODE_END, OPTION_CODE_PARAMETER_REQUEST_LIST,
+            MessageType, ReceivedPacket, MESSAGE_TYPE_ACK, MESSAGE_TYPE_ACTIVELEASEQUERY,
+            MESSAGE_TYPE_BULKLEASEQUERY, MESSAGE_TYPE_DECLINE, MESSAGE_TYPE_DHCPDISCOVER,
+            MESSAGE_TYPE_FORCERENEW, MESSAGE_TYPE_INFORM, MESSAGE_TYPE_LEASEACTIVE,
+            MESSAGE_TYPE_LEASEQUERY, MESSAGE_TYPE_LEASEQUERYDONE, MESSAGE_TYPE_LEASEQUERYSTATUS,
+            MESSAGE_TYPE_LEASEUNASSIGNED, MESSAGE_TYPE_LEASEUNKNOWN, MESSAGE_TYPE_NAK,
+            MESSAGE_TYPE_OFFER, MESSAGE_TYPE_RELEASE, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_TLS,
+            OPTION_CODE_CLIENT_IDENTIFIER, OPTION_CODE_DHCP_MESSAGE_TYPE, OPTION_CODE_END,
+            OPTION_CODE_PARAMETER_REQUEST_LIST,
         },
         tests::common::TestPacket,
     };
@@ -658,26 +727,122 @@ mod tests {
     }
 
     #[test]
-    fn message_type_from_buffer() {
-        assert_eq!(MessageType::from(1), MessageType::Discover);
-        assert_eq!(MessageType::from(2), MessageType::Offer);
-        assert_eq!(MessageType::from(3), MessageType::Request);
-        assert_eq!(MessageType::from(4), MessageType::Decline);
-        assert_eq!(MessageType::from(5), MessageType::Ack);
-        assert_eq!(MessageType::from(6), MessageType::Nak);
-        assert_eq!(MessageType::from(7), MessageType::Release);
-        assert_eq!(MessageType::from(8), MessageType::Inform);
-        assert_eq!(MessageType::from(9), MessageType::ForceRenew);
-        assert_eq!(MessageType::from(10), MessageType::LeaseQuery);
-        assert_eq!(MessageType::from(11), MessageType::LeaseUnassigned);
-        assert_eq!(MessageType::from(12), MessageType::LeaseUnknown);
-        assert_eq!(MessageType::from(13), MessageType::LeaseActive);
-        assert_eq!(MessageType::from(14), MessageType::BulkLeaseQuery);
-        assert_eq!(MessageType::from(15), MessageType::LeaseQueryDone);
-        assert_eq!(MessageType::from(16), MessageType::ActiveLeaseQuery);
-        assert_eq!(MessageType::from(17), MessageType::LeaseQueryStatus);
-        assert_eq!(MessageType::from(18), MessageType::Tls);
+    fn message_type_from_number() {
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_DHCPDISCOVER),
+            MessageType::Discover
+        );
+        assert_eq!(MessageType::from(MESSAGE_TYPE_OFFER), MessageType::Offer);
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_REQUEST),
+            MessageType::Request
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_DECLINE),
+            MessageType::Decline
+        );
+        assert_eq!(MessageType::from(MESSAGE_TYPE_ACK), MessageType::Ack);
+        assert_eq!(MessageType::from(MESSAGE_TYPE_NAK), MessageType::Nak);
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_RELEASE),
+            MessageType::Release
+        );
+        assert_eq!(MessageType::from(MESSAGE_TYPE_INFORM), MessageType::Inform);
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_FORCERENEW),
+            MessageType::ForceRenew
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEQUERY),
+            MessageType::LeaseQuery
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEUNASSIGNED),
+            MessageType::LeaseUnassigned
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEUNKNOWN),
+            MessageType::LeaseUnknown
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEACTIVE),
+            MessageType::LeaseActive
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_BULKLEASEQUERY),
+            MessageType::BulkLeaseQuery
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEQUERYDONE),
+            MessageType::LeaseQueryDone
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_ACTIVELEASEQUERY),
+            MessageType::ActiveLeaseQuery
+        );
+        assert_eq!(
+            MessageType::from(MESSAGE_TYPE_LEASEQUERYSTATUS),
+            MessageType::LeaseQueryStatus
+        );
+        assert_eq!(MessageType::from(MESSAGE_TYPE_TLS), MessageType::Tls);
         assert_eq!(MessageType::from(100), MessageType::Unknown(100));
+    }
+
+    #[test]
+    fn message_type_into_number() {
+        let message_type: u8 = MessageType::Discover.into();
+        assert_eq!(MESSAGE_TYPE_DHCPDISCOVER, message_type);
+
+        let message_type: u8 = MessageType::Offer.into();
+        assert_eq!(MESSAGE_TYPE_OFFER, message_type);
+
+        let message_type: u8 = MessageType::Request.into();
+        assert_eq!(MESSAGE_TYPE_REQUEST, message_type);
+
+        let message_type: u8 = MessageType::Decline.into();
+        assert_eq!(MESSAGE_TYPE_DECLINE, message_type);
+
+        let message_type: u8 = MessageType::Ack.into();
+        assert_eq!(MESSAGE_TYPE_ACK, message_type);
+
+        let message_type: u8 = MessageType::Nak.into();
+        assert_eq!(MESSAGE_TYPE_NAK, message_type);
+
+        let message_type: u8 = MessageType::Release.into();
+        assert_eq!(MESSAGE_TYPE_RELEASE, message_type);
+
+        let message_type: u8 = MessageType::Inform.into();
+        assert_eq!(MESSAGE_TYPE_INFORM, message_type);
+
+        let message_type: u8 = MessageType::ForceRenew.into();
+        assert_eq!(MESSAGE_TYPE_FORCERENEW, message_type);
+
+        let message_type: u8 = MessageType::LeaseQuery.into();
+        assert_eq!(MESSAGE_TYPE_LEASEQUERY, message_type);
+
+        let message_type: u8 = MessageType::LeaseUnassigned.into();
+        assert_eq!(MESSAGE_TYPE_LEASEUNASSIGNED, message_type);
+
+        let message_type: u8 = MessageType::LeaseUnknown.into();
+        assert_eq!(MESSAGE_TYPE_LEASEUNKNOWN, message_type);
+
+        let message_type: u8 = MessageType::LeaseActive.into();
+        assert_eq!(MESSAGE_TYPE_LEASEACTIVE, message_type);
+
+        let message_type: u8 = MessageType::BulkLeaseQuery.into();
+        assert_eq!(MESSAGE_TYPE_BULKLEASEQUERY, message_type);
+
+        let message_type: u8 = MessageType::LeaseQueryDone.into();
+        assert_eq!(MESSAGE_TYPE_LEASEQUERYDONE, message_type);
+
+        let message_type: u8 = MessageType::ActiveLeaseQuery.into();
+        assert_eq!(MESSAGE_TYPE_ACTIVELEASEQUERY, message_type);
+
+        let message_type: u8 = MessageType::LeaseQueryStatus.into();
+        assert_eq!(MESSAGE_TYPE_LEASEQUERYSTATUS, message_type);
+
+        let message_type: u8 = MessageType::Tls.into();
+        assert_eq!(MESSAGE_TYPE_TLS, message_type);
     }
 
     #[test]

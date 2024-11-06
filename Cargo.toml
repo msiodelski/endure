@@ -26,11 +26,11 @@ tokio = { version = "1.36.0", features = ["full"] }
 serde_json = { version = "1.0.114", features = ["raw_value"] }
 actix-web-lab = "0.20.2"
 tokio-stream = "0.1.14"
+libc = "0.2.153"
 
 [dev-dependencies]
 assert_cmd = "2.0.14"
 assert_json = "0.1.0"
-libc = "0.2.153"
 predicates = "3.1.0"
 tempdir = "0.3.7"
 
