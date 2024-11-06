@@ -85,18 +85,18 @@ impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
     fn collect_metrics(&mut self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
-            METRIC_RETRANSMIT_PERCENT,
+            METRIC_BOOTP_RETRANSMIT_PERCENT,
             MetricValue::Float64Value(self.retransmits.average()),
         );
 
         metrics_store.set_metric_value(
-            METRIC_RETRANSMIT_SECS_AVG,
+            METRIC_BOOTP_RETRANSMIT_SECS_AVG,
             MetricValue::Float64Value(self.secs.average()),
         );
 
         if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
             metrics_store.set_metric_value(
-                METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT,
+                METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT,
                 MetricValue::StringValue(longest_trying_client.id.clone()),
             );
         }
@@ -108,18 +108,18 @@ impl InitMetrics for RetransmissionTotalAuditor {
         self.metrics_store = metrics_store.clone();
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_PERCENT,
+            METRIC_BOOTP_RETRANSMIT_PERCENT,
             "Percentage of the retransmissions in all messages sent by clients.",
             MetricValue::Float64Value(self.retransmits.average()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_SECS_AVG,
+            METRIC_BOOTP_RETRANSMIT_SECS_AVG,
             "Average retransmission time in all messages (i.e. average time in retransmissions to acquire a new lease).",
             MetricValue::Float64Value(self.secs.average()),
         ));
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT,
+            METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT,
             "MAC address of the the client who has been trying the longest to acquire a lease in all messages.",
             MetricValue::StringValue("".to_string()),
         ));
@@ -187,18 +187,18 @@ impl DHCPv4PacketAuditor for RetransmissionStreamAuditor {
     fn collect_metrics(&mut self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
-            METRIC_RETRANSMIT_PERCENT_100,
+            METRIC_BOOTP_RETRANSMIT_PERCENT_100,
             MetricValue::Float64Value(self.retransmits.average()),
         );
 
         metrics_store.set_metric_value(
-            METRIC_RETRANSMIT_SECS_AVG_100,
+            METRIC_BOOTP_RETRANSMIT_SECS_AVG_100,
             MetricValue::Float64Value(self.secs.average()),
         );
 
         if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
             metrics_store.set_metric_value(
-                METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
+                METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
                 MetricValue::StringValue(longest_trying_client.id.clone()),
             );
         }
@@ -210,18 +210,18 @@ impl InitMetrics for RetransmissionStreamAuditor {
         self.metrics_store = metrics_store.clone();
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_PERCENT_100,
+            METRIC_BOOTP_RETRANSMIT_PERCENT_100,
             "Percentage of the retransmissions in the last 100 messages sent by clients.",
             MetricValue::Float64Value(self.retransmits.average()),
         ));
 
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_SECS_AVG_100,
+            METRIC_BOOTP_RETRANSMIT_SECS_AVG_100,
             "Average retransmission time in the last 100 messages (i.e. average time in retransmissions to acquire a new lease).",
             MetricValue::Float64Value(self.secs.average()),
         ));
         metrics_store.set_metric(Metric::new(
-            METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
+            METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
             "MAC address of the the client who has been trying the longest to acquire a lease in the last 100 messages.",
             MetricValue::StringValue("".to_string()),
         ));
@@ -278,7 +278,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT)
         );
 
         assert_eq!(
@@ -286,7 +286,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_SECS_AVG)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG)
         );
 
         assert_eq!(
@@ -294,7 +294,9 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<String>(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT)
+                .get_metric_value_unwrapped::<String>(
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT
+                )
         );
 
         // Audit 4 packets. The first is not a retransmission. The remaining ones
@@ -313,7 +315,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_PERCENT)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT)
         );
 
         assert_eq!(
@@ -321,7 +323,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_SECS_AVG)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG)
         );
 
         assert_eq!(
@@ -329,7 +331,9 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<String>(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT)
+                .get_metric_value_unwrapped::<String>(
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT
+                )
         );
     }
 
@@ -365,7 +369,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT_100)
         );
 
         assert_eq!(
@@ -373,7 +377,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_SECS_AVG_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100)
         );
 
         assert_eq!(
@@ -381,7 +385,9 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<String>(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100)
+                .get_metric_value_unwrapped::<String>(
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100
+                )
         );
 
         // Audit 4 packets. The first is not a retransmission. The remaining ones
@@ -400,7 +406,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT_100)
         );
 
         assert_eq!(
@@ -408,7 +414,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_RETRANSMIT_SECS_AVG_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100)
         );
 
         assert_eq!(
@@ -416,7 +422,9 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<String>(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100)
+                .get_metric_value_unwrapped::<String>(
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100
+                )
         );
     }
 }

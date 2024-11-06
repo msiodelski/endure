@@ -1,3 +1,5 @@
+use crate::proto::dhcp::v4::{MessageType, OPTION_CODE_DHCP_MESSAGE_TYPE};
+
 const VALID_BOOTP_PACKET: &'static [u8] = &[
     2, // op (1 byte) = BOOTREPLY
     1, // htype (1 byte) = Ethernet
@@ -98,6 +100,14 @@ impl TestPacket {
         Self {
             data: BASE_DHCP_PACKET.to_vec(),
         }
+    }
+
+    pub fn new_dhcp_packet_with_message_type(message_type: MessageType) -> Self {
+        Self::new_base_dhcp_packet().append(&vec![
+            OPTION_CODE_DHCP_MESSAGE_TYPE,
+            1,
+            message_type.into(),
+        ])
     }
 
     pub fn get(&self) -> &Vec<u8> {

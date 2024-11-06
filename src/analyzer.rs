@@ -1,6 +1,8 @@
 //! `analyzer` is a module containing the packet analysis and reporting logic.
 
+use endure_lib::time_wrapper::TimeWrapper;
 use futures::executor::block_on;
+use libc::timeval;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -10,12 +12,14 @@ use endure_lib::metric::{MetricsStore, SharedMetricsStore};
 use endure_macros::cond_add_auditor;
 
 use crate::auditor::common::{
-    AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor, GenericPacketAuditor,
+    AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4TransactionAuditor,
+    DHCPv4TransactionCache, GenericPacketAuditor, SharedDHCPv4TransactionCache,
 };
 use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
 use crate::auditor::retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor};
-use crate::proto::dhcp::v4;
+use crate::auditor::roundtrip::{DORARoundtripStreamAuditor, DORARoundtripTotalAuditor};
+use crate::proto::dhcp::v4::{self};
 
 use actix_web::HttpResponse;
 use prometheus_client::collector::Collector;
@@ -156,6 +160,8 @@ impl Analyzer {
 struct AnalyzerState {
     generic_auditors: Vec<Arc<RwLock<Box<dyn GenericPacketAuditor>>>>,
     dhcpv4_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4PacketAuditor>>>>,
+    dhcpv4_transactional_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4TransactionAuditor>>>>,
+    dhcpv4_transactions: SharedDHCPv4TransactionCache,
     metrics_store: SharedMetricsStore,
 }
 
@@ -165,6 +171,8 @@ impl AnalyzerState {
         Self {
             generic_auditors: Vec::default(),
             dhcpv4_auditors: Vec::default(),
+            dhcpv4_transactional_auditors: Vec::default(),
+            dhcpv4_transactions: DHCPv4TransactionCache::default().to_shared(),
             metrics_store: MetricsStore::new().with_timestamp().to_shared(),
         }
     }
@@ -174,6 +182,8 @@ impl AnalyzerState {
         Self {
             generic_auditors: Vec::default(),
             dhcpv4_auditors: Vec::default(),
+            dhcpv4_transactional_auditors: Vec::default(),
+            dhcpv4_transactions: DHCPv4TransactionCache::default().to_shared(),
             metrics_store: MetricsStore::new().to_shared(),
         }
     }
@@ -205,6 +215,10 @@ impl AnalyzerState {
         cond_add_auditor!(OpCodeStreamAuditor);
         cond_add_auditor!(RetransmissionTotalAuditor);
         cond_add_auditor!(RetransmissionStreamAuditor);
+
+        let auditors = &mut self.dhcpv4_transactional_auditors;
+        cond_add_auditor!(DORARoundtripTotalAuditor);
+        cond_add_auditor!(DORARoundtripStreamAuditor);
     }
 
     /// Runs generic auditors for the received packet.
@@ -224,8 +238,26 @@ impl AnalyzerState {
     /// # Parameters
     ///
     /// - `packet` - a received unparsed DHCPv4 packet
-    async fn audit_dhcpv4(&self, packet: &v4::RawPacket) {
+    async fn audit_dhcpv4(&self, packet_time: timeval, packet: &v4::RawPacket) {
         let mut packet = packet.into_shared_parsable();
+        if let Ok(transaction) = self
+            .dhcpv4_transactions
+            .write()
+            .await
+            .insert(TimeWrapper::from_timeval(packet_time, packet.clone()))
+        {
+            for auditor in self.dhcpv4_transactional_auditors.iter() {
+                auditor.write().await.audit(&mut transaction.clone());
+            }
+        }
+        let dhcpv4_transactions = self.dhcpv4_transactions.clone();
+        tokio::spawn(async move {
+            dhcpv4_transactions
+                .write()
+                .await
+                .garbage_collect_expired(10)
+                .await;
+        });
         for auditor in self.dhcpv4_auditors.iter() {
             auditor.write().await.audit(&mut packet);
         }
@@ -251,7 +283,7 @@ impl AnalyzerState {
                     match packet_payload {
                         Ok(packet_payload) => {
                             let packet_payload = v4::ReceivedPacket::new(&packet_payload);
-                            self.audit_dhcpv4(&packet_payload).await;
+                            self.audit_dhcpv4(packet.header.ts, &packet_payload).await;
                         }
                         // For now we ignore unsupported data links or truncated packets.
                         _ => {}
@@ -279,6 +311,9 @@ impl AnalyzerState {
         for auditor in self.dhcpv4_auditors.iter() {
             auditor.write().await.collect_metrics();
         }
+        for auditor in self.dhcpv4_transactional_auditors.iter() {
+            auditor.write().await.collect_metrics();
+        }
         self.metrics_store.clone()
     }
 }
@@ -302,6 +337,7 @@ mod tests {
     use actix_web::{body::to_bytes, web::Bytes};
     use assert_json::assert_json;
     use chrono::{DateTime, Local};
+    use libc::timeval;
     use pcap::{Linktype, PacketHeader};
     use prometheus_client::{encoding::text::encode, registry::Registry};
 
@@ -352,7 +388,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -391,7 +427,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -429,7 +465,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics_store.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics_store.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
@@ -461,7 +497,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
@@ -514,7 +550,15 @@ mod tests {
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = ReceivedPacket::new(&test_packet.get());
-            analyzer.audit_dhcpv4(&packet).await;
+            analyzer
+                .audit_dhcpv4(
+                    timeval {
+                        tv_sec: 0,
+                        tv_usec: 0,
+                    },
+                    &packet,
+                )
+                .await;
         }
         let metrics = analyzer
             .current_dhcpv4_metrics()
@@ -523,7 +567,7 @@ mod tests {
             .unwrap()
             .clone();
 
-        let opcode_boot_replies_percent = metrics.get(METRIC_OPCODE_BOOT_REPLIES_PERCENT_100);
+        let opcode_boot_replies_percent = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100);
         assert!(opcode_boot_replies_percent.is_some());
         assert_eq!(
             0.0,
@@ -532,7 +576,8 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_boot_requests_percent = metrics.get(METRIC_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let opcode_boot_requests_percent =
+            metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
         assert!(opcode_boot_requests_percent.is_some());
         assert_eq!(
             100.0,
@@ -541,33 +586,37 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_invalid_percent = metrics.get(METRIC_OPCODE_INVALID_PERCENT_100);
+        let opcode_invalid_percent = metrics.get(METRIC_BOOTP_OPCODE_INVALID_PERCENT_100);
         assert!(opcode_invalid_percent.is_some());
         assert_eq!(
             0.0,
             opcode_invalid_percent.unwrap().get_value_unwrapped::<f64>()
         );
 
-        let retransmit_percent = metrics.get(METRIC_RETRANSMIT_PERCENT_100);
-        assert!(retransmit_percent.is_some());
+        let bootp_retransmit_percent = metrics.get(METRIC_BOOTP_RETRANSMIT_PERCENT_100);
+        assert!(bootp_retransmit_percent.is_some());
         assert_eq!(
             90.0,
-            retransmit_percent.unwrap().get_value_unwrapped::<f64>()
+            bootp_retransmit_percent
+                .unwrap()
+                .get_value_unwrapped::<f64>()
         );
 
-        let retransmit_secs_avg = metrics.get(METRIC_RETRANSMIT_SECS_AVG_100);
-        assert!(retransmit_secs_avg.is_some());
+        let bootp_retransmit_secs_avg = metrics.get(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100);
+        assert!(bootp_retransmit_secs_avg.is_some());
         assert_eq!(
             4.5,
-            retransmit_secs_avg.unwrap().get_value_unwrapped::<f64>()
+            bootp_retransmit_secs_avg
+                .unwrap()
+                .get_value_unwrapped::<f64>()
         );
 
-        let retransmit_longest_trying_client =
-            metrics.get(METRIC_RETRANSMIT_LONGEST_TRYING_CLIENT_100);
-        assert!(retransmit_longest_trying_client.is_some());
+        let bootp_retransmit_longest_trying_client =
+            metrics.get(METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100);
+        assert!(bootp_retransmit_longest_trying_client.is_some());
         assert_eq!(
             "2d:20:59:2b:0c:16",
-            retransmit_longest_trying_client
+            bootp_retransmit_longest_trying_client
                 .unwrap()
                 .get_value_unwrapped::<String>()
         );
@@ -587,37 +636,48 @@ mod tests {
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
             let packet = ReceivedPacket::new(&test_packet.get());
-            analyzer.state.read().await.audit_dhcpv4(&packet).await;
+            analyzer
+                .state
+                .read()
+                .await
+                .audit_dhcpv4(
+                    timeval {
+                        tv_sec: 0,
+                        tv_usec: 0,
+                    },
+                    &packet,
+                )
+                .await;
         }
         let mut buffer = String::new();
         encode(&mut buffer, &registry).unwrap();
         assert!(buffer.contains(
-            "# HELP opcode_boot_requests_count Total number of the BootRequest messages."
+            "# HELP bootp_opcode_boot_requests_count Total number of the BootRequest messages."
+        ));
+        assert!(buffer.contains(
+            "# HELP bootp_opcode_boot_replies_count Total number of the BootReply messages."
         ));
         assert!(buffer
-            .contains("# HELP opcode_boot_replies_count Total number of the BootReply messages."));
-        assert!(
-            buffer.contains("# HELP opcode_invalid_count Total number of the invalid messages.")
-        );
+            .contains("# HELP bootp_opcode_invalid_count Total number of the invalid messages."));
         assert!(buffer.contains(
-            "# HELP opcode_boot_requests_percent_100 Percentage of the BootRequest messages in last 100 messages."
+            "# HELP bootp_opcode_boot_requests_percent_100 Percentage of the BootRequest messages in last 100 messages."
         ));
-        assert!(buffer.contains("# TYPE opcode_boot_requests_percent_100 gauge"));
+        assert!(buffer.contains("# TYPE bootp_opcode_boot_requests_percent_100 gauge"));
         assert!(buffer.contains("opcode_boot_requests_percent_100 100.0"));
         assert!(buffer
-            .contains("# HELP opcode_boot_replies_percent_100 Percentage of the BootReply messages in last 100 messages."));
-        assert!(buffer.contains("# TYPE opcode_boot_replies_percent_100 gauge"));
+            .contains("# HELP bootp_opcode_boot_replies_percent_100 Percentage of the BootReply messages in last 100 messages."));
+        assert!(buffer.contains("# TYPE bootp_opcode_boot_replies_percent_100 gauge"));
         assert!(buffer.contains("opcode_boot_replies_percent_100 0.0"));
         assert!(
-            buffer.contains("# HELP opcode_invalid_percent_100 Percentage of the invalid messages in last 100 messages.")
+            buffer.contains("# HELP bootp_opcode_invalid_percent_100 Percentage of the invalid messages in last 100 messages.")
         );
-        assert!(buffer.contains("# TYPE opcode_invalid_percent_100 gauge"));
-        assert!(buffer.contains("opcode_invalid_percent_100 0.0"));
-        assert!(buffer.contains("# HELP retransmit_percent_100 Percentage of the retransmissions in the last 100 messages sent by clients."));
-        assert!(buffer.contains("# TYPE retransmit_percent_100 gauge"));
-        assert!(buffer.contains("retransmit_percent_100 90.0"));
-        assert!(buffer.contains("# TYPE retransmit_secs_avg_100 gauge"));
-        assert!(buffer.contains("retransmit_secs_avg_100 4.5"));
+        assert!(buffer.contains("# TYPE bootp_opcode_invalid_percent_100 gauge"));
+        assert!(buffer.contains("bootp_opcode_invalid_percent_100 0.0"));
+        assert!(buffer.contains("# HELP bootp_retransmit_percent_100 Percentage of the retransmissions in the last 100 messages sent by clients."));
+        assert!(buffer.contains("# TYPE bootp_retransmit_percent_100 gauge"));
+        assert!(buffer.contains("bootp_retransmit_percent_100 90.0"));
+        assert!(buffer.contains("# TYPE bootp_retransmit_secs_avg_100 gauge"));
+        assert!(buffer.contains("bootp_retransmit_secs_avg_100 4.5"));
         assert!(buffer.contains("# EOF"));
     }
 
@@ -631,6 +691,6 @@ mod tests {
         assert!(result.is_ok());
         let body = to_bytes(result.unwrap().into_body()).await.unwrap();
         let body = body.as_str();
-        assert_json!(body, { METRIC_OPCODE_BOOT_REPLIES_PERCENT_100: 0.0 });
+        assert_json!(body, { METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100: 0.0 });
     }
 }

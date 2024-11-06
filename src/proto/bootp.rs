@@ -90,7 +90,7 @@ impl From<u8> for OpCode {
 /// The most widely used hardware type is Ethernet. Thus, this is the only
 /// type having its own item in this enum. All other types are represented
 /// by the catch-all [HType::Other].
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub enum HType {
     /// Ethernet hardware type (1).
     Ethernet,
@@ -112,7 +112,7 @@ impl From<u8> for HType {
 /// The length of the hardware address depends on the hardware type. Thus,
 /// this structure includes both the buffer with an actual address and the
 /// hardware type.
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct HAddr {
     htype: HType,
     data: Vec<u8>,
@@ -187,7 +187,7 @@ pub struct RawState {
 /// [PartiallyParsedState]. The cached value is returned the next time the same
 /// function is called. Selective parsing improves performance when the caller
 /// is only interested in accessing the portions of a packet.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PartiallyParsedState {
     buffer: ReceiveBuffer,
     parsed_opcode: Option<OpCode>,
@@ -218,7 +218,7 @@ pub struct PartiallyParsedState {
 /// is unparsed and exposes no data parsing functions. The packet must be
 /// explicitly transitioned to the [PartiallyParsedState] before parsing and
 /// accessing the named data fields carried in the packet.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ReceivedPacket<State> {
     /// Packet state.
     state: State,
