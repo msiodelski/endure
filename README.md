@@ -62,21 +62,23 @@ Endure is a new project with limited capabilities. However, it can already colle
 
 | Metric | Description |
 |--------|-------------|
-|`opcode_boot_requests_count`|A total number of `BootRequest` messages|
-|`opcode_boot_replies_count`|A total number of `BootRequest` messages|
-|`opcode_invalid_count`|A total number of invalid messages (having invalid `OpCode`)|
-|`opcode_boot_requests_percent`|A percentage of `BootRequest` messages|
-|`opcode_boot_replies_percent`|A percentage of the `BootReply` messages|
-|`opcode_invalid_percent`|A percentage of neither request nor reply messages|
-|`opcode_boot_requests_percent_100`|A percentage of `BootRequest` messages in last 100 packets|
-|`opcode_boot_replies_percent_100`|A percentage of the `BootReply` messages in last 100 packets|
-|`opcode_invalid_percent_100`|A percentage of neither request nor reply messages in last 100 packets|
-|`retransmit_percent`|Percentage of retransmissions|
-|`retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
-|`retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
-|`retransmit_percent_100`|Percentage of retransmissions in last 100 packets|
-|`retransmit_secs_avg_100`|Average number of seconds the DHCP clients have been retrying to acquire a lease in last 100 packets|
-|`retransmit_longest_trying_client_100`|MAC address of a client who has been trying to get the lease the longest in last 100 packets|
+|`bootp_opcode_boot_requests_count`|A total number of `BootRequest` messages|
+|`bootp_opcode_boot_replies_count`|A total number of `BootRequest` messages|
+|`bootp_opcode_invalid_count`|A total number of invalid messages (having invalid `OpCode`)|
+|`bootp_opcode_boot_requests_percent`|A percentage of `BootRequest` messages|
+|`bootp_opcode_boot_replies_percent`|A percentage of the `BootReply` messages|
+|`bootp_opcode_invalid_percent`|A percentage of neither request nor reply messages|
+|`bootp_opcode_boot_requests_percent_100`|A percentage of `BootRequest` messages in last 100 packets|
+|`bootp_opcode_boot_replies_percent_100`|A percentage of the `BootReply` messages in last 100 packets|
+|`bootp_opcode_invalid_percent_100`|A percentage of neither request nor reply messages in last 100 packets|
+|`bootp_retransmit_percent`|Percentage of retransmissions|
+|`bootp_retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
+|`bootp_retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
+|`bootp_retransmit_percent_100`|Percentage of retransmissions in last 100 packets|
+|`bootp_retransmit_secs_avg_100`|Average number of seconds the DHCP clients have been retrying to acquire a lease in last 100 packets|
+|`bootp_retransmit_longest_trying_client_100`|MAC address of a client who has been trying to get the lease the longest in last 100 packets|
+|`dhcpv4_roundtrip_dora_milliseconds_avg`|Average time in milliseconds to complete a successful 4-way (DORA) exchange|
+|`dhcpv4_roundtrip_dora_milliseconds_avg_100`|Average time in milliseconds to complete a successful 4-way (DORA) exchange for last 100 DHCPv4 transactions|
 
 The metrics can be reported over several different channels: CSV write to a file or console, export to [Prometheus](prometheus.io), [Server Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events), or the REST API. Consult the [User's Manual](https://github.com/msiodelski/endure/wiki/User-Manual-(endure)) for details.
 
