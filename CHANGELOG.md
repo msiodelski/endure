@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Implemented transactional auditor measuring average roundtrip
+  time for DHCPv4 DORA exchanges.
+  (Github #54, #58).
+
 ## Release v0.3.0 (April 4th, 2024)
 
 * Implemented Dedicated `opcode` and `retransmission` auditors
