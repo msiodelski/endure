@@ -9,8 +9,12 @@ use super::{
         AuditProfileCheck, DHCPv4Transaction, DHCPv4TransactionAuditor, DHCPv4TransactionKind,
     },
     metric::{
+        METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
+        METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
         METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
         METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
+        METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
+        METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
     },
     util::{RoundedSMA, RoundedSTA},
 };
@@ -18,8 +22,8 @@ use crate::auditor::common::AuditProfile;
 use endure_lib::metric::{FromMetricsStore, InitMetrics, Metric, MetricValue, SharedMetricsStore};
 use endure_macros::{AuditProfileCheck, FromMetricsStore};
 
-/// An auditor maintaining the average time between DHCPDISCOVER and DHCPACK in
-/// all messages.
+/// An auditor maintaining the average time between different exchanges
+/// in the DORA exchange in all messages.
 ///
 /// # Profiles
 ///
@@ -29,14 +33,18 @@ use endure_macros::{AuditProfileCheck, FromMetricsStore};
 #[derive(AuditProfileCheck, Debug, FromMetricsStore)]
 #[profiles(AuditProfile::PcapFinalFull)]
 pub struct DORARoundtripTotalAuditor {
-    roundtrip: RoundedSTA<1>,
+    do_roundtrip: RoundedSTA<1>,
+    ra_roundtrip: RoundedSTA<1>,
+    dora_roundtrip: RoundedSTA<1>,
     metrics_store: SharedMetricsStore,
 }
 
 impl Default for DORARoundtripTotalAuditor {
     fn default() -> Self {
         Self {
-            roundtrip: RoundedSTA::new(),
+            dora_roundtrip: RoundedSTA::new(),
+            do_roundtrip: RoundedSTA::new(),
+            ra_roundtrip: RoundedSTA::new(),
             metrics_store: Default::default(),
         }
     }
@@ -47,23 +55,31 @@ impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
         // Need to own the transaction because we're going to access
         // it several times.
         let transaction = transaction.to_owned();
-        if transaction
-            .kind()
-            .ne(&DHCPv4TransactionKind::FourWayExchange(true))
+        let kind = transaction.kind();
+        if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true))
+            || kind.eq(&DHCPv4TransactionKind::Discovery(true))
         {
-            return;
-        }
-        // It should be safe to unwrap the packets because we have checked the
-        // transaction type.
-        let discover = transaction.discover.unwrap();
-        let ack = transaction.ack.unwrap();
-
-        match ack.timestamp().duration_since(discover.timestamp()) {
-            Ok(duration) => {
-                self.roundtrip
+            // DO exchange.
+            let discover = transaction.discover.unwrap();
+            let offer = transaction.offer.as_ref().unwrap();
+            if let Ok(duration) = offer.timestamp().duration_since(discover.timestamp()) {
+                self.do_roundtrip
                     .add_sample((duration.as_micros() as u64) / 100);
             }
-            Err(_) => return,
+            if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true)) {
+                // DORA exchange.
+                let ack = transaction.ack.unwrap();
+                if let Ok(duration) = ack.timestamp().duration_since(discover.timestamp()) {
+                    self.dora_roundtrip
+                        .add_sample((duration.as_micros() as u64) / 100);
+                }
+                // RA exchange.
+                let request = transaction.request.unwrap();
+                if let Ok(duration) = ack.timestamp().duration_since(request.timestamp()) {
+                    self.ra_roundtrip
+                        .add_sample((duration.as_micros() as u64) / 100);
+                }
+            }
         }
     }
 
@@ -71,7 +87,15 @@ impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
-            MetricValue::Float64Value(self.roundtrip.average() / 10f64),
+            MetricValue::Float64Value(self.dora_roundtrip.average() / 10f64),
+        );
+        metrics_store.set_metric_value(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
+            MetricValue::Float64Value(self.do_roundtrip.average() / 10f64),
+        );
+        metrics_store.set_metric_value(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
+            MetricValue::Float64Value(self.ra_roundtrip.average() / 10f64),
         );
     }
 }
@@ -83,12 +107,23 @@ impl InitMetrics for DORARoundtripTotalAuditor {
         metrics_store.set_metric(Metric::new(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
             "Average time in milliseconds to perform a 4-way (DORA) exchange in all transactions.",
-            MetricValue::Float64Value(self.roundtrip.average()),
+            MetricValue::Float64Value(self.dora_roundtrip.average()),
+        ));
+        metrics_store.set_metric(Metric::new(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
+            "Average time in milliseconds to complete a successful Discover/Offer exchange in all transactions.",
+            MetricValue::Float64Value(self.do_roundtrip.average()),
+        ));
+        metrics_store.set_metric(Metric::new(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
+            "Average time in milliseconds to complete a successful Request/Ack exchange within a 4-way (DORA) exchange in all transactions.",
+            MetricValue::Float64Value(self.ra_roundtrip.average()),
         ));
     }
 }
 
-/// An auditor maintaining the average time between DHCPDISCOVER and DHCPACK.
+/// An auditor maintaining the average time between different exchanges
+/// in the DORA exchange.
 ///
 /// # Profiles
 ///
@@ -98,14 +133,18 @@ impl InitMetrics for DORARoundtripTotalAuditor {
 #[derive(AuditProfileCheck, Debug, FromMetricsStore)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct DORARoundtripStreamAuditor {
-    roundtrip: RoundedSMA<1, 100>,
+    do_roundtrip: RoundedSMA<1, 100>,
+    ra_roundtrip: RoundedSMA<1, 100>,
+    dora_roundtrip: RoundedSMA<1, 100>,
     metrics_store: SharedMetricsStore,
 }
 
 impl Default for DORARoundtripStreamAuditor {
     fn default() -> Self {
         Self {
-            roundtrip: RoundedSMA::new(),
+            dora_roundtrip: RoundedSMA::new(),
+            do_roundtrip: RoundedSMA::new(),
+            ra_roundtrip: RoundedSMA::new(),
             metrics_store: Default::default(),
         }
     }
@@ -116,23 +155,31 @@ impl DHCPv4TransactionAuditor for DORARoundtripStreamAuditor {
         // Need to own the transaction because we're going to access
         // it several times.
         let transaction = transaction.to_owned();
-        if transaction
-            .kind()
-            .ne(&DHCPv4TransactionKind::FourWayExchange(true))
+        let kind = transaction.kind();
+        if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true))
+            || kind.eq(&DHCPv4TransactionKind::Discovery(true))
         {
-            return;
-        }
-        // It should be safe to unwrap the packets because we have checked the
-        // transaction type.
-        let discover = transaction.discover.unwrap();
-        let ack = transaction.ack.unwrap();
-
-        match ack.timestamp().duration_since(discover.timestamp()) {
-            Ok(duration) => {
-                self.roundtrip
+            // DO exchange.
+            let discover = transaction.discover.unwrap();
+            let offer = transaction.offer.as_ref().unwrap();
+            if let Ok(duration) = offer.timestamp().duration_since(discover.timestamp()) {
+                self.do_roundtrip
                     .add_sample((duration.as_micros() as u64) / 100);
             }
-            Err(_) => return,
+            if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true)) {
+                // DORA exchange.
+                let ack = transaction.ack.unwrap();
+                if let Ok(duration) = ack.timestamp().duration_since(discover.timestamp()) {
+                    self.dora_roundtrip
+                        .add_sample((duration.as_micros() as u64) / 100);
+                }
+                // RA exchange.
+                let request = transaction.request.unwrap();
+                if let Ok(duration) = ack.timestamp().duration_since(request.timestamp()) {
+                    self.ra_roundtrip
+                        .add_sample((duration.as_micros() as u64) / 100);
+                }
+            }
         }
     }
 
@@ -140,7 +187,15 @@ impl DHCPv4TransactionAuditor for DORARoundtripStreamAuditor {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
-            MetricValue::Float64Value(self.roundtrip.average() / 10f64),
+            MetricValue::Float64Value(self.dora_roundtrip.average() / 10f64),
+        );
+        metrics_store.set_metric_value(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
+            MetricValue::Float64Value(self.do_roundtrip.average() / 10f64),
+        );
+        metrics_store.set_metric_value(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
+            MetricValue::Float64Value(self.ra_roundtrip.average() / 10f64),
         );
     }
 }
@@ -152,7 +207,17 @@ impl InitMetrics for DORARoundtripStreamAuditor {
         metrics_store.set_metric(Metric::new(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
             "Average time in milliseconds to perform a 4-way (DORA) exchange in last 100 transactions.",
-            MetricValue::Float64Value(self.roundtrip.average()),
+            MetricValue::Float64Value(self.dora_roundtrip.average()),
+        ));
+        metrics_store.set_metric(Metric::new(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
+            "Average time in milliseconds to complete a successful Discover/Offer exchange in last 100 transactions.",
+            MetricValue::Float64Value(self.do_roundtrip.average()),
+        ));
+        metrics_store.set_metric(Metric::new(
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
+            "Average time in milliseconds to complete a successful Request/Ack exchange within a 4-way (DORA) exchange in last 100 transactions.",
+            MetricValue::Float64Value(self.ra_roundtrip.average()),
         ));
     }
 }
@@ -170,8 +235,7 @@ mod tests {
                 AuditProfile, AuditProfileCheck, DHCPv4Transaction, DHCPv4TransactionAuditor,
             },
             metric::{
-                METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
-                METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
+                METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG, METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100, METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG, METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100, METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG, METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100
             },
             roundtrip::{DORARoundtripStreamAuditor, DORARoundtripTotalAuditor},
         },
@@ -233,13 +297,19 @@ mod tests {
 
         let metrics_store_ref = metrics_store.clone();
 
-        assert_eq!(
-            0.0,
-            metrics_store_ref
-                .read()
-                .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG)
-        );
+        for metric in vec![
+            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
+        ] {
+            assert_eq!(
+                0.0,
+                metrics_store_ref
+                    .read()
+                    .unwrap()
+                    .get_metric_value_unwrapped::<f64>(metric)
+            );
+        }
 
         // Complete the transaction by adding the rest of the packets of the
         // 4-way exchange.
@@ -256,6 +326,26 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG)
+        );
+
+        assert_eq!(
+            200.0,
+            metrics_store_ref
+                .read()
+                .unwrap()
+                .get_metric_value_unwrapped::<f64>(
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG
+                )
+        );
+
+        assert_eq!(
+            1622.0,
+            metrics_store_ref
+                .read()
+                .unwrap()
+                .get_metric_value_unwrapped::<f64>(
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG
+                )
         );
     }
 
@@ -272,19 +362,23 @@ mod tests {
 
         let metrics_store_ref = metrics_store.clone();
 
-        assert_eq!(
-            0.0,
-            metrics_store_ref
-                .read()
-                .unwrap()
-                .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100
-                )
-        );
+        for metric in vec![
+            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
+        ] {
+            assert_eq!(
+                0.0,
+                metrics_store_ref
+                    .read()
+                    .unwrap()
+                    .get_metric_value_unwrapped::<f64>(metric)
+            );
+        }
 
         // Complete the transaction by adding the rest of the packets of the
         // 4-way exchange.
-        insert_packet_into_transaction(5, 300000, MessageType::Offer, &mut transaction);
+        insert_packet_into_transaction(5, 500000, MessageType::Offer, &mut transaction);
         insert_packet_into_transaction(6, 578000, MessageType::Request, &mut transaction);
         insert_packet_into_transaction(8, 200000, MessageType::Ack, &mut transaction);
 
@@ -298,6 +392,26 @@ mod tests {
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(
                     METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100
+                )
+        );
+
+        assert_eq!(
+            400.0,
+            metrics_store_ref
+                .read()
+                .unwrap()
+                .get_metric_value_unwrapped::<f64>(
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100
+                )
+        );
+
+        assert_eq!(
+            1622.0,
+            metrics_store_ref
+                .read()
+                .unwrap()
+                .get_metric_value_unwrapped::<f64>(
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100
                 )
         );
     }

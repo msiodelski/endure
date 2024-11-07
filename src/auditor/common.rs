@@ -62,7 +62,9 @@ pub enum DHCPv4TransactionCacheError {
 #[derive(Debug, PartialEq)]
 pub enum DHCPv4TransactionKind {
     /// A DHCPDISCOVER/DHCPOFFER exchange.
-    Discovery,
+    ///
+    /// A boolean parameter indicates if the DHCPOFFER has been received.
+    Discovery(bool),
     /// A 4-way exchange.
     ///
     /// A boolean parameter indicates if the exchage has been completed.
@@ -170,7 +172,7 @@ impl DHCPv4Transaction {
                     None => DHCPv4TransactionKind::FourWayExchange(self.ack.is_some()),
                 },
                 // Possibly just a first packet or an offer too.
-                None => DHCPv4TransactionKind::Discovery,
+                None => DHCPv4TransactionKind::Discovery(self.offer.is_some()),
             };
         }
         if self.request.is_some() {
@@ -504,7 +506,7 @@ mod tests {
         .into_shared_parsable();
         let result = transaction.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
 
         // DHCPOFFER.
         let packet = ReceivedPacket::new(
@@ -513,7 +515,7 @@ mod tests {
         .into_shared_parsable();
         let result = transaction.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
 
         // DHCPREQUEST.
         let packet = ReceivedPacket::new(
@@ -552,7 +554,7 @@ mod tests {
         .into_shared_parsable();
         let result = transaction.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
 
         // DHCPOFFER.
         let packet = ReceivedPacket::new(
@@ -561,7 +563,7 @@ mod tests {
         .into_shared_parsable();
         let result = transaction.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
 
         // DHCPREQUEST.
         let packet = ReceivedPacket::new(
@@ -688,7 +690,7 @@ mod tests {
         let result = cache.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
         let transaction = result.unwrap();
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
         assert!(transaction.discover.is_some());
 
         let packet = ReceivedPacket::new(
@@ -698,7 +700,7 @@ mod tests {
         let result = cache.insert(TimeWrapper::from(packet.clone()));
         assert!(result.is_ok());
         let transaction = result.unwrap();
-        assert_eq!(DHCPv4TransactionKind::Discovery, transaction.kind());
+        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
         assert!(transaction.discover.is_some());
         assert!(transaction.offer.is_some());
 

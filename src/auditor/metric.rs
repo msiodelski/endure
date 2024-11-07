@@ -57,7 +57,27 @@ pub const METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100: &str =
 pub const METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG: &str =
     "dhcpv4_roundtrip_dora_milliseconds_avg";
 
+/// Average time in milliseconds to complete a successful Discover/Offer exchange
+/// in all transactions.
+pub const METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG: &str =
+    "dhcpv4_roundtrip_dora_do_milliseconds_avg";
+
+/// Average time in milliseconds to complete a successful Request/Ack exchange
+/// within a 4-way (DORA) exchange in all transactions.
+pub const METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG: &str =
+    "dhcpv4_roundtrip_dora_ra_milliseconds_avg";
+
 /// Average time in milliseconds to complete a successful 4-way (DORA) exchange
 /// for last 100 transactions.
 pub const METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100: &str =
     "dhcpv4_roundtrip_dora_milliseconds_avg_100";
+
+/// Average time in milliseconds to complete a successful Discover/Offer exchange
+/// for last 100 transactions.
+pub const METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100: &str =
+    "dhcpv4_roundtrip_dora_do_milliseconds_avg_100";
+
+/// Average time in milliseconds to complete a successful Request/Ack exchange
+/// within a 4-way (DORA) exchange for last 100 transactions.
+pub const METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100: &str =
+    "dhcpv4_roundtrip_dora_ra_milliseconds_avg_100";
