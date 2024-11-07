@@ -67,12 +67,14 @@ pub enum DispatchError {
 /// An HTTP handler for exposing the metrics to Prometheus.
 #[get("/metrics")]
 async fn metrics_handler(registry_wrapper: web::Data<RegistryWrapper>) -> Result<HttpResponse> {
+    _ = registry_wrapper.analyzer().current_dhcpv4_metrics().await;
     registry_wrapper.http_encode_metrics().await
 }
 
 /// An HTTP handler for exposing the metrics via the REST API.
 #[get("/api/metrics")]
 async fn api_metrics_handler(analyzer: web::Data<Analyzer>) -> Result<HttpResponse> {
+    _ = analyzer.current_dhcpv4_metrics().await;
     analyzer.http_encode_to_json().await
 }
 
@@ -94,6 +96,7 @@ pub enum CsvOutputType {
 
 /// Wraps [`Registry`] instance and registers a custom collector.
 struct RegistryWrapper {
+    analyzer: Analyzer,
     registry: Registry,
 }
 
@@ -102,8 +105,13 @@ impl RegistryWrapper {
     /// a custom collector.
     fn new(analyzer: Analyzer) -> Self {
         let mut registry = Registry::default();
-        registry.register_collector(Box::new(analyzer));
-        Self { registry }
+        registry.register_collector(Box::new(analyzer.clone()));
+        Self { analyzer, registry }
+    }
+
+    /// Returns wrapped [`Analyzer`] instance.
+    fn analyzer(&self) -> &Analyzer {
+        &self.analyzer
     }
 
     /// HTTP server handler returning collected metrics as a HTTP response.
