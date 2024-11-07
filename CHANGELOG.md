@@ -1,5 +1,10 @@
 # ChangeLog
 
+* Corrected a bug whereby the metrics returned over the REST API
+  and exported to Prometheus were always 0 when neither SSE nor
+  CSV output were enabled.
+  (Github #59, #60).
+
 * Implemented transactional auditor measuring average roundtrip
   time for DHCPv4 DORA exchanges.
   (Github #54, #58).
