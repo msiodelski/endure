@@ -20,7 +20,8 @@ use crate::proto::{
     dhcp::v4::{self, MessageType, SharedPartiallyParsedPacket},
 };
 
-/// Represents errors returned by the functions parsing DHCP options.
+/// Represents errors returned by the functions storing received packets
+/// in the DHCPv4 transaction cache.
 #[derive(Debug, Error, PartialEq)]
 pub enum DHCPv4TransactionCacheError {
     /// An error returned upon an attempt to read from the packet.
@@ -81,8 +82,8 @@ pub enum DHCPv4TransactionKind {
 /// A DHCPv4 transaction maintained by the [`crate::analyzer::Analyzer`].
 ///
 /// It holds DHCPv4 packets grouped into matching exchanges.
-/// The exchanges can be matched by `xid`, MAC address, client
-/// identifier etc. Grouping packets allows for generating
+/// The packets are typically be matched by `xid`, MAC address,
+/// client identifier etc. Grouping packets allows for generating
 /// metrics such as packet processing time (the time to generate
 /// a response), number of unanswered client requests and many
 /// other.
@@ -90,8 +91,9 @@ pub enum DHCPv4TransactionKind {
 /// In the case of the 4-way exchange, all four messages should
 /// be recorded in the [`DHCPv4Transaction`] because there is the
 /// expectation that the same `xid` is used in all messages.
-/// In case of a lease renew only two messages are typically set
-/// in the transaction (e.g., `DHCPREQUEST` and `DHCPACK`).
+/// In case of a lease renew or information request only two
+/// messages are typically matched and set in the transaction
+/// (e.g., `DHCPREQUEST` and `DHCPACK`).
 #[derive(Debug, Clone)]
 pub struct DHCPv4Transaction {
     /// A timestamp when the transaction instance was created.
@@ -106,7 +108,6 @@ pub struct DHCPv4Transaction {
     pub ack: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
     /// A DHCPNAK message sent by the server.
     pub nak: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
-    /// A DHCPRELEASE message sent by the client.
     /// A DHCPINFORM message sent by the client.
     pub inform: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
 }
@@ -251,6 +252,7 @@ impl DHCPv4Transaction {
     /// # Parameters
     ///
     /// - `existing_packet` is a reference to a set or unset packet instance.
+    /// - `message_type` is a DHCPv4 message type.
     /// - `packet` is a reference to the packet to be set.
     ///
     /// # Results
@@ -290,7 +292,7 @@ impl DHCPv4TransactionCache {
         Arc::new(RwLock::new(self))
     }
 
-    /// Finds an existing transaction and inserts a packet into it, or create
+    /// Finds an existing transaction and inserts a packet into it, or creates
     /// a new transaction.
     ///
     /// # Parameters

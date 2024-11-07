@@ -63,8 +63,7 @@ impl Analyzer {
         }
     }
 
-    /// Installs auditors generic packet auditors for the specified
-    /// [`AuditProfile`].
+    /// Installs generic packet auditors for the specified [`AuditProfile`].
     ///
     /// Generic auditors are not tied to any particular protocol. They typically
     /// analyze the metadata in the received packet's header.
