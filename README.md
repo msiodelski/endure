@@ -14,7 +14,7 @@ $ apt install libpcap-dev
 
 ### Building with Cargo
 
-Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility. The minimal required `rustc` version is 1.74.
+Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility. It was tested with `rustc` version is 1.82.
 
 ```
 $ cd endure
@@ -78,7 +78,11 @@ Endure is a new project with limited capabilities. However, it can already colle
 |`bootp_retransmit_secs_avg_100`|Average number of seconds the DHCP clients have been retrying to acquire a lease in last 100 packets|
 |`bootp_retransmit_longest_trying_client_100`|MAC address of a client who has been trying to get the lease the longest in last 100 packets|
 |`dhcpv4_roundtrip_dora_milliseconds_avg`|Average time in milliseconds to complete a successful 4-way (DORA) exchange|
+|`dhcpv4_roundtrip_dora_do_milliseconds_avg`|Average time in milliseconds to complete a Discover/Offer exchange during the 4-way (DORA) exchange|
+|`dhcpv4_roundtrip_dora_ra_milliseconds_avg`|Average time in milliseconds to complete a Request/Ack exchange during the 4-way (DORA) exchange|
 |`dhcpv4_roundtrip_dora_milliseconds_avg_100`|Average time in milliseconds to complete a successful 4-way (DORA) exchange for last 100 DHCPv4 transactions|
+|`dhcpv4_roundtrip_dora_do_milliseconds_avg_100`|Average time in milliseconds to complete a Discover/Offer exchange during the 4-way (DORA) exchange in last 100 transactions|
+|`dhcpv4_roundtrip_dora_ra_milliseconds_avg_100`|Average time in milliseconds to complete a Request/Ack exchange during the 4-way (DORA) exchange in last 100 transactions|
 
 The metrics can be reported over several different channels: CSV write to a file or console, export to [Prometheus](prometheus.io), [Server Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events), or the REST API. Consult the [User's Manual](https://github.com/msiodelski/endure/wiki/User-Manual-(endure)) for details.
 
