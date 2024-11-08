@@ -1,0 +1,17 @@
+services:
+  prometheus:
+    image: prom/prometheus
+    network_mode: "host"
+    volumes:
+      - type: bind
+        source: ./prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+  grafana:
+    image: grafana/grafana-oss
+    network_mode: "host"
+    volumes:
+      - ./grafana.ini:/etc/grafana/grafana.ini
+      - ./datasource.yaml:/etc/grafana/provisioning/datasources/datasource.yaml
+      - ./dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml
+      - ./main.json:/var/lib/grafana/dashboards/main.json
+
