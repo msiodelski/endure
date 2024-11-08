@@ -40,6 +40,30 @@ Listening on the local loopback interface has no practical application in produc
 $ endure collect --loopback -c stdout
 ```
 
+### Integration with Prometheus and Grafana
+
+Endure source code includes a [Docker Compose](https://docs.docker.com/compose/) configuration that launches
+two containers, one with a [Prometheus](https://prometheus.io) instance, and one with [Grafana](https://grafana.com).
+This setup requires that [Host network driver](https://docs.docker.com/engine/network/drivers/host/) is enabled
+in Docker.
+
+Launch the containers using the following commands:
+
+```
+$ cd docker
+$ docker compose up
+```
+
+Prometheus is configured to scrape the metrics from http://localhost:9100. Make sure that `endure`
+makes the metrics available on that address and port. For example:
+
+```
+./endure collect --loopback  --prometheus --http-address 127.0.0.1:9100
+```
+
+Open Grafana dashboard in the browser on http://localhost:3000. Navigate to `Dashboards` to
+monitor the metrics exported by `endure`.
+
 ### Capture File Analysis
 
 Having a capture file named `capture.pcap` it is possible to gather the same metrics using the `read` command:
