@@ -1,5 +1,7 @@
 # ChangeLog
 
+## Release v0.4.0 (November 14th, 2024)
+
 * Added a Docker configuration that launches two containers, one
   with Prometheus and one with Grafana. They can be used to
   monitor the metrics exported by `endure` in a graphical
