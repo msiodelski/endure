@@ -169,7 +169,9 @@ impl DHCPv4Transaction {
                 Some(_) => match self.nak {
                     // It is a 4-way exchange already.
                     Some(_) => DHCPv4TransactionKind::FailedFourWayExchange,
-                    None => DHCPv4TransactionKind::FourWayExchange(self.ack.is_some()),
+                    None => DHCPv4TransactionKind::FourWayExchange(
+                        self.ack.is_some() && self.request.is_some() && self.offer.is_some(),
+                    ),
                 },
                 // Possibly just a first packet or an offer too.
                 None => DHCPv4TransactionKind::Discovery(self.offer.is_some()),
@@ -540,6 +542,54 @@ mod tests {
             DHCPv4TransactionKind::FourWayExchange(true),
             transaction.kind()
         );
+    }
+
+    #[test]
+    fn dhcpv4_transaction_four_way_exchange_out_of_order() {
+        let mut transaction = DHCPv4Transaction::new();
+        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+
+        // DHCPDISCOVER.
+        let packet = ReceivedPacket::new(
+            TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover).get(),
+        )
+        .into_shared_parsable();
+        let result = transaction.insert(TimeWrapper::from(packet));
+        assert!(result.is_ok());
+        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
+
+        // DHCPREQUEST.
+        let packet = ReceivedPacket::new(
+            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
+        )
+        .into_shared_parsable();
+        let result = transaction.insert(TimeWrapper::from(packet));
+        assert!(result.is_ok());
+        assert_eq!(
+            DHCPv4TransactionKind::FourWayExchange(false),
+            transaction.kind()
+        );
+
+        // DHCPACK.
+        let packet = ReceivedPacket::new(
+            TestPacket::new_dhcp_packet_with_message_type(MessageType::Ack).get(),
+        )
+        .into_shared_parsable();
+        let result = transaction.insert(TimeWrapper::from(packet));
+        assert!(result.is_ok());
+        assert_eq!(
+            DHCPv4TransactionKind::FourWayExchange(false),
+            transaction.kind()
+        );
+
+        // DHCPOFFER.
+        let packet = ReceivedPacket::new(
+            TestPacket::new_dhcp_packet_with_message_type(MessageType::Offer).get(),
+        )
+        .into_shared_parsable();
+        let result = transaction.insert(TimeWrapper::from(packet));
+        assert!(result.is_ok());
+        assert_eq!(DHCPv4TransactionKind::FourWayExchange(true), transaction.kind());
     }
 
     #[test]
