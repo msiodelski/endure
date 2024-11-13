@@ -113,7 +113,7 @@ impl Analyzer {
         });
     }
 
-    /// Collects and teturns the current metrics from all generic and
+    /// Collects and returns the current metrics from all generic and
     /// DHCPv4 auditors.
     ///
     /// # Usage

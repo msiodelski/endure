@@ -67,7 +67,7 @@ pub enum DHCPv4TransactionKind {
     Discovery(bool),
     /// A 4-way exchange.
     ///
-    /// A boolean parameter indicates if the exchage has been completed.
+    /// A boolean parameter indicates if the exchange has been completed.
     FourWayExchange(bool),
     /// A 4-way exchange in which the server responded with DHCPNAK.
     FailedFourWayExchange,
@@ -150,7 +150,7 @@ impl DHCPv4Transaction {
     ///
     /// The transaction that includes no packets has [`DHCPv4TransactionKind::Undetermined`]
     /// kind. The kind changes depending on the set of packets stored
-    /// in the transactioon. If the transaction includes a `DHCPDISCOVER`
+    /// in the transaction. If the transaction includes a `DHCPDISCOVER`
     /// packet but no `DHCPREQUEST`, it has a [`DHCPv4TransactionKind::Discovery`]
     /// kind. It may change to [`DHCPv4TransactionKind::FourWayExchange`] when
     /// a `DHCPREQUEST` packet is inserted. It remains [`DHCPv4TransactionKind::FourWayExchange`]
