@@ -304,7 +304,7 @@ impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM,
                 // Add a sample of `1` to a selected metric.
                 self.averages[i].add_sample(1000);
             } else {
-                // Add a sample of `0` of the remaining mretrics.
+                // Add a sample of `0` of the remaining metrics.
                 self.averages[i].add_sample(0);
             }
         }

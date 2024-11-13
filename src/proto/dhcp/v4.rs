@@ -370,7 +370,7 @@ impl ReceivedPacket<RawState> {
     ///
     /// # Result
     ///
-    /// It returns non-shared, non-lockable, parseable packet instance.
+    /// It returns non-shared, non-lockable, parsable packet instance.
     pub fn into_parsable(&self) -> ReceivedPacket<PartiallyParsedState> {
         let bootp = bootp::ReceivedPacket::new(&self.state.data);
         ReceivedPacket::<PartiallyParsedState> {
@@ -386,7 +386,7 @@ impl ReceivedPacket<RawState> {
     ///
     /// # Result
     ///
-    /// It returns shared, lockable, parseable packet instance.
+    /// It returns shared, lockable, parsable packet instance.
     pub fn into_shared_parsable(&self) -> SharedPartiallyParsedPacket {
         Arc::new(RwLock::new(self.into_parsable()))
     }
@@ -574,7 +574,7 @@ impl ReceivedPacket<PartiallyParsedState> {
         Ok(result)
     }
 
-    /// Reads a DHCP option from the packet and tranforms the returned
+    /// Reads a DHCP option from the packet and transforms the returned
     /// [`BufferError`] to [`OptionParseError`].
     ///
     /// It is called internally by the function parsing specific options.

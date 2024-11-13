@@ -131,7 +131,7 @@ struct InterfaceArgs {
     #[arg(short, long)]
     interface_name: Vec<String>,
     #[arg(long, action)]
-    /// Enables listening on the loopback interface. It is an alias for -l [loopback-inteface-name].
+    /// Enables listening on the loopback interface. It is an alias for -l [loopback-interface-name].
     loopback: bool,
 }
 

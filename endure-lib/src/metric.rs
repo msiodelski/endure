@@ -79,7 +79,7 @@ pub enum MetricValue {
 
 /// An association of a metric name, help text and its value.
 ///
-/// It contains all data required for converstion to the format used
+/// It contains all data required for conversion to the format used
 /// by Prometheus.
 #[derive(Clone, Debug)]
 pub struct Metric {
