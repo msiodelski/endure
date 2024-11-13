@@ -1,5 +1,11 @@
 # ChangeLog
 
+* Added a Docker configuration that launches two containers, one
+  with Prometheus and one with Grafana. They can be used to
+  monitor the metrics exported by `endure` in a graphical
+  environment.
+  (Github #61, #62).
+
 * Corrected a bug whereby the metrics returned over the REST API
   and exported to Prometheus were always 0 when neither SSE nor
   CSV output were enabled.
