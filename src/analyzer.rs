@@ -1,19 +1,22 @@
 //! `analyzer` is a module containing the packet analysis and reporting logic.
 
-use endure_lib::time_wrapper::TimeWrapper;
+use endure_lib::{auditor::SharedAuditConfigContext, time_wrapper::TimeWrapper};
 use futures::executor::block_on;
 use libc::timeval;
 use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 
-use endure_lib::capture::{self, PacketWrapper};
-use endure_lib::metric::FromMetricsStore;
-use endure_lib::metric::{MetricsStore, SharedMetricsStore};
+use endure_lib::{
+    auditor::CreateAuditor,
+    capture::{self, PacketWrapper},
+    metric::{MetricsStore, SharedMetricsStore},
+};
 use endure_macros::cond_add_auditor;
 
+use crate::auditor::common::AuditProfileCheck;
 use crate::auditor::common::{
-    AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4TransactionAuditor,
-    DHCPv4TransactionCache, GenericPacketAuditor, SharedDHCPv4TransactionCache,
+    AuditProfile, DHCPv4PacketAuditor, DHCPv4TransactionAuditor, DHCPv4TransactionCache,
+    GenericPacketAuditor, SharedDHCPv4TransactionCache,
 };
 use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
@@ -38,7 +41,7 @@ use prometheus_client::collector::Collector;
 /// this profile. Therefore, each auditor must be annotated with the
 /// profiles it belongs to using the [`AuditProfileCheck`] macro and
 /// the `profile` attribute. The auditors must also derive the
-/// [`FromMetricsStore`] trait implementation, so they can be instantiated
+/// [`CreateAuditor`] trait implementation, so they can be instantiated
 /// in the [`Analyzer::add_dhcpv4_auditors`], or other function installing
 /// the auditors. Finally, the auditors must be conditionally installed in
 /// [`Analyzer::add_dhcpv4_auditors`] or other similar function appropriate
@@ -50,16 +53,28 @@ pub struct Analyzer {
 
 impl Analyzer {
     /// Instantiates the [`Analyzer`] for live capture.
-    pub fn create_for_listener() -> Self {
+    ///
+    /// # Parameters
+    ///
+    /// - `audit_config_context` is a pointer to the configuration of the auditors.
+    ///
+    pub fn create_for_listener(audit_config_context: &SharedAuditConfigContext) -> Self {
         Self {
-            state: Arc::new(RwLock::new(AnalyzerState::create_for_listener())),
+            state: Arc::new(RwLock::new(AnalyzerState::create_for_listener(
+                audit_config_context,
+            ))),
         }
     }
 
     /// Instantiates the [`Analyzer`] for capture file.
-    pub fn create_for_reader() -> Self {
+    ///
+    /// - `audit_config_context` is a pointer to the configuration of the auditors.
+    ///
+    pub fn create_for_reader(audit_config_context: &SharedAuditConfigContext) -> Self {
         Self {
-            state: Arc::new(RwLock::new(AnalyzerState::create_for_reader())),
+            state: Arc::new(RwLock::new(AnalyzerState::create_for_reader(
+                audit_config_context,
+            ))),
         }
     }
 
@@ -155,35 +170,48 @@ impl Analyzer {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 struct AnalyzerState {
     generic_auditors: Vec<Arc<RwLock<Box<dyn GenericPacketAuditor>>>>,
     dhcpv4_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4PacketAuditor>>>>,
     dhcpv4_transactional_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4TransactionAuditor>>>>,
     dhcpv4_transactions: SharedDHCPv4TransactionCache,
     metrics_store: SharedMetricsStore,
+    audit_config_context: SharedAuditConfigContext,
 }
 
 impl AnalyzerState {
     /// Instantiates the [`Analyzer`] for live capture.
-    pub fn create_for_listener() -> Self {
+    ///
+    /// # Parameters
+    ///
+    /// - `audit_config_context` is a pointer to the configuration of the auditors.
+    ///
+    pub fn create_for_listener(audit_config_context: &SharedAuditConfigContext) -> Self {
         Self {
             generic_auditors: Vec::default(),
             dhcpv4_auditors: Vec::default(),
             dhcpv4_transactional_auditors: Vec::default(),
             dhcpv4_transactions: DHCPv4TransactionCache::default().to_shared(),
             metrics_store: MetricsStore::new().with_timestamp().to_shared(),
+            audit_config_context: audit_config_context.clone(),
         }
     }
 
     /// Instantiates the [`Analyzer`] for capture file.
-    pub fn create_for_reader() -> Self {
+    ///
+    /// # Parameters
+    ///
+    /// - `audit_config_context` is a pointer to the configuration of the auditors.
+    ///
+    pub fn create_for_reader(audit_config_context: &SharedAuditConfigContext) -> Self {
         Self {
             generic_auditors: Vec::default(),
             dhcpv4_auditors: Vec::default(),
             dhcpv4_transactional_auditors: Vec::default(),
             dhcpv4_transactions: DHCPv4TransactionCache::default().to_shared(),
             metrics_store: MetricsStore::new().to_shared(),
+            audit_config_context: audit_config_context.clone(),
         }
     }
 
@@ -336,6 +364,7 @@ mod tests {
     use actix_web::{body::to_bytes, web::Bytes};
     use assert_json::assert_json;
     use chrono::{DateTime, Local};
+    use endure_lib::auditor::AuditConfigContext;
     use libc::timeval;
     use pcap::{Linktype, PacketHeader};
     use prometheus_client::{encoding::text::encode, registry::Registry};
@@ -358,7 +387,8 @@ mod tests {
 
     #[tokio::test]
     async fn analyzer_receive_dhcp4_packet_ethernet() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -387,7 +417,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -397,7 +427,8 @@ mod tests {
 
     #[tokio::test]
     async fn analyzer_receive_dhcp4_packet_loopback() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -426,7 +457,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT);
         assert!(metric.is_some());
         let metric = metric.unwrap().get_value::<f64>();
         assert!(metric.is_some());
@@ -436,7 +467,8 @@ mod tests {
 
     #[tokio::test]
     async fn analyzer_receive_dhcp4_packet_non_matching_filter() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -464,14 +496,15 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics_store.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics_store.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
 
     #[tokio::test]
     async fn analyzer_receive_dhcp4_packet_truncated() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -496,7 +529,7 @@ mod tests {
             .read()
             .unwrap()
             .clone();
-        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let metric = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT);
         assert!(metric.is_some());
         assert_eq!(0.0, metric.unwrap().get_value_unwrapped::<f64>())
     }
@@ -504,7 +537,8 @@ mod tests {
     #[tokio::test]
     async fn analyzer_generic_audit() {
         const BASE_TIME: i64 = 1711535347;
-        let mut analyzer = AnalyzerState::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = AnalyzerState::create_for_listener(&audit_config_context);
         analyzer.add_generic_auditors(&AuditProfile::PcapStreamFull);
         for i in 0..10 {
             let packet = PacketWrapper {
@@ -541,7 +575,8 @@ mod tests {
 
     #[tokio::test]
     async fn analyzer_audit_dhcpv4() {
-        let mut analyzer = AnalyzerState::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = AnalyzerState::create_for_listener(&audit_config_context);
         analyzer.add_dhcpv4_auditors(&AuditProfile::LiveStreamFull);
         for i in 0..10 {
             let test_packet = TestPacket::new_valid_bootp_packet();
@@ -566,7 +601,7 @@ mod tests {
             .unwrap()
             .clone();
 
-        let opcode_boot_replies_percent = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100);
+        let opcode_boot_replies_percent = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT);
         assert!(opcode_boot_replies_percent.is_some());
         assert_eq!(
             0.0,
@@ -575,8 +610,7 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_boot_requests_percent =
-            metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT_100);
+        let opcode_boot_requests_percent = metrics.get(METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT);
         assert!(opcode_boot_requests_percent.is_some());
         assert_eq!(
             100.0,
@@ -585,14 +619,14 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let opcode_invalid_percent = metrics.get(METRIC_BOOTP_OPCODE_INVALID_PERCENT_100);
+        let opcode_invalid_percent = metrics.get(METRIC_BOOTP_OPCODE_INVALID_PERCENT);
         assert!(opcode_invalid_percent.is_some());
         assert_eq!(
             0.0,
             opcode_invalid_percent.unwrap().get_value_unwrapped::<f64>()
         );
 
-        let bootp_retransmit_percent = metrics.get(METRIC_BOOTP_RETRANSMIT_PERCENT_100);
+        let bootp_retransmit_percent = metrics.get(METRIC_BOOTP_RETRANSMIT_PERCENT);
         assert!(bootp_retransmit_percent.is_some());
         assert_eq!(
             90.0,
@@ -601,7 +635,7 @@ mod tests {
                 .get_value_unwrapped::<f64>()
         );
 
-        let bootp_retransmit_secs_avg = metrics.get(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100);
+        let bootp_retransmit_secs_avg = metrics.get(METRIC_BOOTP_RETRANSMIT_SECS_AVG);
         assert!(bootp_retransmit_secs_avg.is_some());
         assert_eq!(
             4.5,
@@ -611,7 +645,7 @@ mod tests {
         );
 
         let bootp_retransmit_longest_trying_client =
-            metrics.get(METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100);
+            metrics.get(METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT);
         assert!(bootp_retransmit_longest_trying_client.is_some());
         assert_eq!(
             "2d:20:59:2b:0c:16",
@@ -623,7 +657,8 @@ mod tests {
 
     #[tokio::test]
     async fn encode_to_prometheus() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -659,30 +694,31 @@ mod tests {
         assert!(buffer
             .contains("# HELP bootp_opcode_invalid_count Total number of the invalid messages."));
         assert!(buffer.contains(
-            "# HELP bootp_opcode_boot_requests_percent_100 Percentage of the BootRequest messages in last 100 messages."
+            "# HELP bootp_opcode_boot_requests_percent Percentage of the BootRequest messages in last 100 messages."
         ));
-        assert!(buffer.contains("# TYPE bootp_opcode_boot_requests_percent_100 gauge"));
-        assert!(buffer.contains("opcode_boot_requests_percent_100 100.0"));
+        assert!(buffer.contains("# TYPE bootp_opcode_boot_requests_percent gauge"));
+        assert!(buffer.contains("opcode_boot_requests_percent 100.0"));
         assert!(buffer
-            .contains("# HELP bootp_opcode_boot_replies_percent_100 Percentage of the BootReply messages in last 100 messages."));
-        assert!(buffer.contains("# TYPE bootp_opcode_boot_replies_percent_100 gauge"));
-        assert!(buffer.contains("opcode_boot_replies_percent_100 0.0"));
+            .contains("# HELP bootp_opcode_boot_replies_percent Percentage of the BootReply messages in last 100 messages."));
+        assert!(buffer.contains("# TYPE bootp_opcode_boot_replies_percent gauge"));
+        assert!(buffer.contains("opcode_boot_replies_percent 0.0"));
         assert!(
-            buffer.contains("# HELP bootp_opcode_invalid_percent_100 Percentage of the invalid messages in last 100 messages.")
+            buffer.contains("# HELP bootp_opcode_invalid_percent Percentage of the invalid messages in last 100 messages.")
         );
-        assert!(buffer.contains("# TYPE bootp_opcode_invalid_percent_100 gauge"));
-        assert!(buffer.contains("bootp_opcode_invalid_percent_100 0.0"));
-        assert!(buffer.contains("# HELP bootp_retransmit_percent_100 Percentage of the retransmissions in the last 100 messages sent by clients."));
-        assert!(buffer.contains("# TYPE bootp_retransmit_percent_100 gauge"));
-        assert!(buffer.contains("bootp_retransmit_percent_100 90.0"));
-        assert!(buffer.contains("# TYPE bootp_retransmit_secs_avg_100 gauge"));
-        assert!(buffer.contains("bootp_retransmit_secs_avg_100 4.5"));
+        assert!(buffer.contains("# TYPE bootp_opcode_invalid_percent gauge"));
+        assert!(buffer.contains("bootp_opcode_invalid_percent 0.0"));
+        assert!(buffer.contains("# HELP bootp_retransmit_percent Percentage of the retransmissions in last 100 messages."));
+        assert!(buffer.contains("# TYPE bootp_retransmit_percent gauge"));
+        assert!(buffer.contains("bootp_retransmit_percent 90.0"));
+        assert!(buffer.contains("# TYPE bootp_retransmit_secs_avg gauge"));
+        assert!(buffer.contains("bootp_retransmit_secs_avg 4.5"));
         assert!(buffer.contains("# EOF"));
     }
 
     #[tokio::test]
     async fn analyzer_http_encode_to_json() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -690,6 +726,6 @@ mod tests {
         assert!(result.is_ok());
         let body = to_bytes(result.unwrap().into_body()).await.unwrap();
         let body = body.as_str();
-        assert_json!(body, { METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT_100: 0.0 });
+        assert_json!(body, { METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT: 0.0 });
     }
 }

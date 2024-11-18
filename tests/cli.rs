@@ -219,6 +219,23 @@ fn cli_collect_directory_path_not_directory() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
+fn cli_collect_sampling_window_size_out_of_range() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("collect")
+        .arg("-i")
+        .arg("foo")
+        .arg("-a")
+        .arg("127.0.0.1:8080")
+        .arg("--sse")
+        .arg("-s")
+        .arg("65536");
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("65536 is not in 1..65536"));
+    Ok(())
+}
+
+#[test]
 fn cli_read_csv() -> Result<(), Box<dyn std::error::Error>> {
     // This predicate checks the CSV output presence.
     let predicate = predicate::str::is_match("((\\S\\,)+\\S)").unwrap();
@@ -325,5 +342,49 @@ fn cli_read_pcap_unspecified() -> Result<(), Box<dyn std::error::Error>> {
         predicate::str::contains("the following required arguments were not provided")
             .and(predicate::str::contains("  --pcap <PCAP>")),
     );
+    Ok(())
+}
+
+#[test]
+fn cli_read_sampling_window_size_out_of_range() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--sampling-window-size")
+        .arg("65536")
+        .arg("--json")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert()
+        .stderr(predicate::str::contains("65536 is not in 1..65536"));
+    Ok(())
+}
+
+#[test]
+fn cli_read_sampling_window_size_pcap_full() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--sampling-window-size")
+        .arg("65533")
+        .arg("--csv")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().stderr(predicate::str::contains(
+        "the argument '--sampling-window-size' cannot be used with '--csv (without --stream)'",
+    ));
+    Ok(())
+}
+
+#[test]
+fn cli_read_sampling_window_size_json() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("endure")?;
+    cmd.arg("read")
+        .arg("--sampling-window-size")
+        .arg("65533")
+        .arg("--json")
+        .arg("--pcap")
+        .arg(resource_path("capture000.pcap"));
+    cmd.assert().stderr(predicate::str::contains(
+        "the argument '--sampling-window-size' cannot be used with '--json'",
+    ));
     Ok(())
 }

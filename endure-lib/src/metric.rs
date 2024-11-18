@@ -10,17 +10,34 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, RwLock};
 use std::{collections::BTreeMap, io, sync::atomic::AtomicI64};
 
-/// A trait implemented by the auditors that creates their instances
-/// and initializes their metrics in the [`MetricsStore`].
+/// A macro formatting metric help.
 ///
-/// Auditors should derive the [`endure_macros::FromMetricsStore`].
-/// It requires that the deriving auditor implements the [`Default`]
-/// trait. It also calls the [`InitMetrics::init_metrics`] function of
-/// the auditor to initialize the metrics to their default values.
-///
-pub trait FromMetricsStore {
-    /// Instantiates the auditor and configures its [`MetricsStore`].
-    fn from_metrics_store(metrics_store: &SharedMetricsStore) -> Self;
+/// The caller must specify two strings. The first should contain a base metrics
+/// help text. The second is the metric scope. Depending on this scope, the macro
+/// appends a string indicating whether the metric is calculated for all or last N
+/// messages.
+#[macro_export]
+macro_rules! format_help {
+    ($h:expr, $s:expr) => {
+        match $s {
+            MetricScope::Total => format!("{} in all messages.", $h.trim_matches('.')),
+            MetricScope::Moving(samples) => {
+                format!("{} in last {} messages.", $h.trim_matches('.'), samples)
+            }
+        }
+    };
+}
+
+/// Metric scope discriminates the metrics computed from all analyzed
+/// packets and the metrics computed using a window of packets.
+#[derive(Clone, Debug)]
+pub enum MetricScope {
+    /// A metric computed from all packets.
+    Total,
+    /// A metric computed from a window of packets.
+    ///
+    /// The parameter designates the window size.
+    Moving(usize),
 }
 
 /// A trait returning a metric value of a given type.
@@ -34,6 +51,7 @@ pub trait FromMetricsStore {
 ///
 /// It is one of the concrete types in which metrics can be
 /// stored (e.g., `i64`, `String` etc.).
+///
 pub trait GetMetricValue<T> {
     /// Returns the metric value or `None` if the metric has a
     /// a different type.
@@ -60,7 +78,7 @@ pub trait InitMetrics {
     ///   between all auditors. Auditors write their metrics to this store when
     ///   `collect_metrics` function is called.
     ///
-    fn init_metrics(&mut self, metrics_store: &SharedMetricsStore);
+    fn init_metrics(&self);
 }
 
 /// A single metric value having one of the specified types.
@@ -387,11 +405,19 @@ impl Collector for MetricsStore {
 #[cfg(test)]
 mod tests {
 
-    use crate::metric::{GetMetricValue, Metric, MetricValue, MetricsStore};
+    use crate::metric::{GetMetricValue, Metric, MetricScope, MetricValue, MetricsStore};
     use assert_json::assert_json;
     use chrono::{DateTime, Local};
     use csv::WriterBuilder;
     use predicates::prelude::*;
+
+    #[test]
+    fn format_help_total() {
+        assert_eq!(
+            "A help in all messages.",
+            format_help!("A help", MetricScope::Total)
+        );
+    }
 
     #[test]
     fn metric_set_get_i64_value() {

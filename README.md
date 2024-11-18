@@ -74,10 +74,10 @@ $ endure read --pcap capture.pcap --json
 
 It will produce a report in the JSON format containing the metrics computed from all the DHCP packets in the capture file. The same report can be produced in the CSV format using the `--csv` switch.
 
-Finally, using the `--stream` switch it is possible to generate a CSV output with several rows, each row presenting metrics for the last 100 packets. For example:
+Finally, using the `--stream` switch it is possible to generate a CSV output with several rows, each row presenting metrics for the number of packets specified using the `--sampling-window-size` switch. For example:
 
 ```
-$ endure read --pcap capture.pcap --csv --stream
+$ endure read --pcap capture.pcap --csv --stream --sampling-window-size 10
 ```
 
 ### Metrics
@@ -92,21 +92,18 @@ Endure is a new project with limited capabilities. However, it can already colle
 |`bootp_opcode_boot_requests_percent`|A percentage of `BootRequest` messages|
 |`bootp_opcode_boot_replies_percent`|A percentage of the `BootReply` messages|
 |`bootp_opcode_invalid_percent`|A percentage of neither request nor reply messages|
-|`bootp_opcode_boot_requests_percent_100`|A percentage of `BootRequest` messages in last 100 packets|
-|`bootp_opcode_boot_replies_percent_100`|A percentage of the `BootReply` messages in last 100 packets|
-|`bootp_opcode_invalid_percent_100`|A percentage of neither request nor reply messages in last 100 packets|
 |`bootp_retransmit_percent`|Percentage of retransmissions|
 |`bootp_retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
 |`bootp_retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
-|`bootp_retransmit_percent_100`|Percentage of retransmissions in last 100 packets|
-|`bootp_retransmit_secs_avg_100`|Average number of seconds the DHCP clients have been retrying to acquire a lease in last 100 packets|
-|`bootp_retransmit_longest_trying_client_100`|MAC address of a client who has been trying to get the lease the longest in last 100 packets|
 |`dhcpv4_roundtrip_dora_milliseconds_avg`|Average time in milliseconds to complete a successful 4-way (DORA) exchange|
 |`dhcpv4_roundtrip_dora_do_milliseconds_avg`|Average time in milliseconds to complete a Discover/Offer exchange during the 4-way (DORA) exchange|
 |`dhcpv4_roundtrip_dora_ra_milliseconds_avg`|Average time in milliseconds to complete a Request/Ack exchange during the 4-way (DORA) exchange|
-|`dhcpv4_roundtrip_dora_milliseconds_avg_100`|Average time in milliseconds to complete a successful 4-way (DORA) exchange for last 100 DHCPv4 transactions|
-|`dhcpv4_roundtrip_dora_do_milliseconds_avg_100`|Average time in milliseconds to complete a Discover/Offer exchange during the 4-way (DORA) exchange in last 100 transactions|
-|`dhcpv4_roundtrip_dora_ra_milliseconds_avg_100`|Average time in milliseconds to complete a Request/Ack exchange during the 4-way (DORA) exchange in last 100 transactions|
+
+Many of the metrics listed above (e.g., average or percentages) are computed using
+the last N packets. The default number of packets is 100 but can be changed to an
+arbitrary value using the `--sampling-window-size` command line switch. The lower
+the value the more dynamic are the metric changes over time. This parameter is not
+applicable to the full `pcap` file analysis.
 
 The metrics can be reported over several different channels: CSV write to a file or console, export to [Prometheus](prometheus.io), [Server Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events), or the REST API. Consult the [User's Manual](https://github.com/msiodelski/endure/wiki/User-Manual-(endure)) for details.
 

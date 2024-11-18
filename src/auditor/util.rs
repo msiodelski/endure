@@ -1,6 +1,72 @@
-//! `util` is a module containing tools for auditors to calculate metrics.
+//! `util` is a module containing tools for calculating metrics.
 
-use simple_moving_average::{NoSumSMA, SMA};
+use std::slice::Iter;
+
+use endure_lib::metric::MetricScope;
+
+/// Ring buffer holding metrics samples.
+#[derive(Clone, Debug)]
+struct RingBuffer<Sample> {
+    buffer_size: usize,
+    samples: Vec<Sample>,
+}
+
+impl<Sample> RingBuffer<Sample> {
+    /// Instantiates a ring buffer of a given size.
+    ///
+    /// # Parameters
+    ///
+    /// - `buffer_size` is a buffer size.
+    ///
+    fn new(buffer_size: usize) -> Self {
+        let mut samples = Vec::<Sample>::new();
+        samples.reserve(buffer_size);
+        Self {
+            buffer_size,
+            samples,
+        }
+    }
+
+    /// Adds new sample to the buffer.
+    ///
+    /// # Parameters
+    ///
+    /// - `sample` is a new sample to be added to the buffer.
+    ///
+    fn push_front(&mut self, sample: Sample) {
+        if self.samples.len() >= self.buffer_size {
+            self.samples.pop();
+        }
+        self.samples.insert(0, sample);
+    }
+
+    /// Returns an iterator over the samples.
+    fn iter(&self) -> Iter<'_, Sample> {
+        self.samples.iter()
+    }
+
+    /// Returns the number of samples in the buffer.
+    fn len(&self) -> usize {
+        self.samples.len()
+    }
+}
+
+/// An interface to the [`RoundedSMA`] and [`RoundedSTA`].
+pub trait Average {
+    /// Adds new sample to the average.
+    fn add_sample(&mut self, sample: u64);
+
+    /// Returns an average with a selected precision.
+    fn average(&self) -> f64;
+}
+
+/// A trait for constructing the [`RoundedSMA`] or [`RoundedSTA`] instances
+/// from the [`MetricScope`].
+pub trait FromMetricScope {
+    /// Creates a [`RoundedSMA`] or [`RoundedSTA`] implementation from the
+    /// [`MetricScope`].
+    fn from_metric_scope(metric_scope: &MetricScope) -> Self;
+}
 
 /// A single record held in the [`MovingRanks`] container.
 ///
@@ -31,7 +97,7 @@ where
 
     /// Score age.
     ///
-    /// There is a limit in the [`MovingRanks`] how long the ranks are held.
+    /// This is a limit in the [`MovingRanks`] how long the ranks are held.
     /// That's why an age of each rank has to be increased when a new score
     /// is reported. Newer scores eventually replace the older scores when
     /// their lifetime expires.
@@ -63,7 +129,6 @@ where
 /// - `Score` - a score that can be compared with other ranks. It is a metric
 ///   associated with  a client (e.g., `secs` field value).
 /// - `RANKS_NUM` - maximum number of the top ranks.
-/// - `WINDOW_SIZE` - maximum age of the ranks until they expire.
 ///
 /// # Usage Example
 ///
@@ -71,26 +136,28 @@ where
 /// time (i.e., `secs` value). The [`MovingRanks`] can be used as follows:
 ///
 /// ```rust
-/// let mut ranks = MovingRanks::<String, u16, 3, 5>::new();
+/// let mut ranks = MovingRanks::<String, u16, 3>::new(5);
 /// let secs: u16 = 15;
 /// ranks.add_score("00:01:02:03:04:05".to_string(), secs);
 /// if let Some(rank) = ranks.get(0) {
 ///     println!("{}", rank.id);
 /// }
 /// ```
-/// The value of `5` in the generic parameters is the maximum age of the score.
-/// Older ranks are removed and not taken into account when scoring. The value
-/// of `3` is the maximum number of tracked ranks. The `u16` is the type of the
-/// scored value. In this case the `secs` field is the two byte unsigned integer.
-/// Finally, the `String` is the identifier type. Here, we represent the client
-/// MAC address as a string.
+/// The value of `5` is the maximum age of the score. Older ranks are removed and
+/// not taken into account when scoring. The value of `3` is the maximum number of
+/// tracked ranks. The `u16` is the type of the scored value. In this case the `secs`
+/// field is the two byte unsigned integer. Finally, the `String` is the identifier
+/// type. Here, we represent the client MAC address as a string.
 ///
 #[derive(Debug)]
-pub struct MovingRanks<Indent, Score, const RANKS_NUM: usize, const WINDOW_SIZE: usize>
+pub struct MovingRanks<Indent, Score, const RANKS_NUM: usize>
 where
     Indent: std::cmp::PartialEq,
     Score: std::cmp::PartialOrd,
 {
+    /// Maximum age of the ranks before they expire.
+    window_size: usize,
+
     /// Stored ranks.
     ///
     /// This vector has a length between 0 and `RANKS_NUM`. The ranks can be
@@ -98,8 +165,7 @@ where
     ranks: Vec<MovingRank<Indent, Score>>,
 }
 
-impl<Indent, Score, const RANKS_NUM: usize, const WINDOW_SIZE: usize>
-    MovingRanks<Indent, Score, RANKS_NUM, WINDOW_SIZE>
+impl<Indent, Score, const RANKS_NUM: usize> MovingRanks<Indent, Score, RANKS_NUM>
 where
     Indent: std::cmp::PartialEq,
     Score: std::cmp::PartialOrd,
@@ -107,8 +173,16 @@ where
     /// Instantiates the [`MovingRanks`].
     ///
     /// It creates an empty set of ranks.
-    pub fn new() -> MovingRanks<Indent, Score, RANKS_NUM, WINDOW_SIZE> {
-        MovingRanks { ranks: Vec::new() }
+    ///
+    /// # Parameters
+    ///
+    /// - `window_size` is a maximum age of ranks before they expire.
+    ///
+    pub fn new(window_size: usize) -> MovingRanks<Indent, Score, RANKS_NUM> {
+        MovingRanks {
+            window_size,
+            ranks: Vec::new(),
+        }
     }
 
     /// Compares the score with the existing ranks and optionally puts it in the rank list.
@@ -116,7 +190,7 @@ where
     /// The [`MovingRanks`] keeps a limited number of ranks. If the score specified as
     /// a parameter is higher than any of the existing ranks the new score is preserved
     /// and the lowest score is removed. The scores are also removed when their lifetime
-    /// ends (i.e., is greater than the `WINDOW_SIZE`). If the rank for the given identifier
+    /// ends (i.e., is greater than the `window_size`). If the rank for the given identifier
     /// already exists it is replaced with a new score.
     ///
     /// # Parameters
@@ -127,7 +201,7 @@ where
     pub fn add_score(&mut self, id: Indent, score: Score) {
         // Remove expired scores.
         self.ranks
-            .retain(|rank| rank.age < WINDOW_SIZE && rank.id != id);
+            .retain(|rank| rank.age < self.window_size && rank.id != id);
         // Find the index in the vector where our new score belongs.
         let mut index: Option<usize> = None;
         for i in 0..self.ranks.len() {
@@ -207,12 +281,18 @@ pub struct TotalCounter<const COUNTERS_NUM: usize> {
     counters: [i64; COUNTERS_NUM],
 }
 
+impl<const METRICS_NUM: usize> Default for TotalCounter<METRICS_NUM> {
+    fn default() -> Self {
+        Self {
+            counters: [0; METRICS_NUM],
+        }
+    }
+}
+
 impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
     /// Instantiates the counters.
     pub fn new() -> Self {
-        TotalCounter {
-            counters: [0; METRICS_NUM],
-        }
+        Self::default()
     }
 
     /// Increases a selected counter by `1`.
@@ -265,22 +345,21 @@ impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
 ///
 /// - `METRICS_NUM` - specifies the number of tracked metrics. In the case
 ///    described above, it will be `3`.
-/// - `WINDOW_SIZE` - specifies the size of the moving average window.
 ///
 /// # Precision
 ///
 /// The average percentages are returned as floating point number with one
 /// decimal digit. The implementation is using `u64` internally.
-#[derive(Clone, Copy, Debug)]
-pub struct PercentSMA<const METRICS_NUM: usize, const WINDOW_SIZE: usize> {
-    averages: [NoSumSMA<u64, u64, WINDOW_SIZE>; METRICS_NUM],
+#[derive(Clone, Debug)]
+pub struct PercentSMA<const METRICS_NUM: usize> {
+    ring_buffer: RingBuffer<(usize, u64)>,
 }
 
-impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM, WINDOW_SIZE> {
+impl<const METRICS_NUM: usize> PercentSMA<METRICS_NUM> {
     /// Instantiates the [`PercentSMA`].
-    pub fn new() -> PercentSMA<METRICS_NUM, WINDOW_SIZE> {
-        PercentSMA {
-            averages: [(); METRICS_NUM].map(|_| NoSumSMA::new()),
+    pub fn new(window_size: usize) -> PercentSMA<METRICS_NUM> {
+        Self {
+            ring_buffer: RingBuffer::new(window_size),
         }
     }
 
@@ -299,15 +378,7 @@ impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM,
     /// This effectively reduces the quota of the remaining metrics and increases
     /// the quota of the selected metric.
     pub fn increase(&mut self, metric_index: usize) {
-        for i in 0..METRICS_NUM {
-            if i == metric_index {
-                // Add a sample of `1` to a selected metric.
-                self.averages[i].add_sample(1000);
-            } else {
-                // Add a sample of `0` of the remaining metrics.
-                self.averages[i].add_sample(0);
-            }
-        }
+        self.ring_buffer.push_front((metric_index, 1000));
     }
 
     /// Return the moving average of the selected metric.
@@ -321,46 +392,86 @@ impl<const METRICS_NUM: usize, const WINDOW_SIZE: usize> PercentSMA<METRICS_NUM,
     /// The returned value is a percentage of all samples added to the specified
     /// metric. The sum of the averages returned by this function for all metrics
     /// is roughly equal to 100%. The returned value has a single decimal precision.
-    pub fn average(self, metric_index: usize) -> f64 {
-        self.averages[metric_index].get_average() as f64 / 10f64
+    pub fn average(&self, metric_index: usize) -> f64 {
+        if self.ring_buffer.len() == 0 {
+            return 0f64;
+        }
+        let average = self
+            .ring_buffer
+            .iter()
+            .fold(0, |mut acc: u64, sample: &(usize, u64)| {
+                if sample.0 == metric_index {
+                    acc += sample.1;
+                }
+                acc
+            })
+            / self.ring_buffer.len() as u64;
+        average as f64 / 10f64
     }
 }
 
 /// A moving average implementation with an arbitrary precision.
 ///
-/// It is a wrapper around the [`NoSumSMA`] returning an average as a floating
-/// point number with an arbitrary precision.
+/// It returns an average as a floating point number with an arbitrary precision.
 ///
 /// # Generic Parameters
 ///
 /// - PRECISION - selected precision (i.e., 10 for single decimal, 100 for two decimals
 ///   1000 for three, etc.)
-/// - `WINDOW_SIZE` - specifies the size of the moving average window.
-#[derive(Clone, Copy, Debug)]
-pub struct RoundedSMA<const PRECISION: usize, const WINDOW_SIZE: usize> {
-    sma: NoSumSMA<u64, u64, WINDOW_SIZE>,
+///
+#[derive(Clone, Debug)]
+pub struct RoundedSMA<const PRECISION: usize> {
+    ring_buffer: RingBuffer<u64>,
 }
 
-impl<const PRECISION: usize, const WINDOW_SIZE: usize> RoundedSMA<PRECISION, WINDOW_SIZE> {
+impl<const PRECISION: usize> RoundedSMA<PRECISION> {
     /// Instantiates the [`RoundedSMA`].
-    pub fn new() -> RoundedSMA<PRECISION, WINDOW_SIZE> {
-        RoundedSMA {
-            sma: NoSumSMA::new(),
+    ///
+    /// - `window_size` specifies the size of the moving average window.
+    ///
+    pub fn new(window_size: usize) -> RoundedSMA<PRECISION> {
+        Self {
+            ring_buffer: RingBuffer::new(window_size),
         }
     }
+}
 
+impl<const PRECISION: usize> FromMetricScope for RoundedSMA<PRECISION> {
+    fn from_metric_scope(metric_scope: &MetricScope) -> Self {
+        match metric_scope {
+            MetricScope::Total => {
+                panic!("cannot create RoundedSMA instance from MetricScope::Total")
+            }
+            MetricScope::Moving(window_size) => Self::new(window_size.to_owned() as usize),
+        }
+    }
+}
+
+impl<const PRECISION: usize> Average for RoundedSMA<PRECISION> {
     /// Adds a sample.
     ///
     /// # Parameters
     ///
     /// - sample - a sample value.
-    pub fn add_sample(&mut self, sample: u64) {
-        self.sma.add_sample(PRECISION as u64 * sample);
+    ///
+    fn add_sample(&mut self, sample: u64) {
+        self.ring_buffer.push_front(PRECISION as u64 * sample);
     }
 
     /// Returns an average with a selected precision.
-    pub fn average(self) -> f64 {
-        self.sma.get_average() as f64 / PRECISION as f64
+    fn average(&self) -> f64 {
+        if self.ring_buffer.len() == 0 {
+            return 0f64;
+        }
+        let average = self
+            .ring_buffer
+            .iter()
+            .fold(0, |mut acc: u64, sample: &u64| {
+                acc += *sample;
+                acc
+            })
+            / self.ring_buffer.len() as u64;
+        average as f64 / PRECISION as f64
     }
 }
 
@@ -377,7 +488,7 @@ impl<const PRECISION: usize, const WINDOW_SIZE: usize> RoundedSMA<PRECISION, WIN
 /// - PRECISION - selected precision (i.e., 10 for single decimal, 100 for two decimals
 ///   1000 for three, etc.)
 ///
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct RoundedSTA<const PRECISION: usize> {
     sum: u64,
     samples_num: u64,
@@ -386,24 +497,35 @@ pub struct RoundedSTA<const PRECISION: usize> {
 impl<const PRECISION: usize> RoundedSTA<PRECISION> {
     /// Instantiates the [`RoundedSMA`].
     pub fn new() -> RoundedSTA<PRECISION> {
-        RoundedSTA {
-            sum: 0,
-            samples_num: 0,
+        Self::default()
+    }
+}
+
+impl<const PRECISION: usize> FromMetricScope for RoundedSTA<PRECISION> {
+    fn from_metric_scope(metric_scope: &MetricScope) -> Self {
+        match metric_scope {
+            MetricScope::Total => Self::new(),
+            MetricScope::Moving(_) => {
+                panic!("cannot create RoundedSTA instance from MetricScope::Moving(_)")
+            }
         }
     }
+}
 
+impl<const PRECISION: usize> Average for RoundedSTA<PRECISION> {
     /// Adds a sample.
     ///
     /// # Parameters
     ///
     /// - sample - a sample value.
-    pub fn add_sample(&mut self, sample: u64) {
+    ///
+    fn add_sample(&mut self, sample: u64) {
         self.sum += PRECISION as u64 * sample;
         self.samples_num += 1;
     }
 
     /// Returns an average with a selected precision.
-    pub fn average(&self) -> f64 {
+    fn average(&self) -> f64 {
         match self.samples_num {
             0 => 0.0,
             _ => (self.sum / self.samples_num) as f64 / PRECISION as f64,
@@ -413,13 +535,13 @@ impl<const PRECISION: usize> RoundedSTA<PRECISION> {
 
 #[cfg(test)]
 mod tests {
-    use crate::auditor::util::{RoundedSMA, RoundedSTA};
+    use crate::auditor::util::{Average, RoundedSMA, RoundedSTA};
 
     use super::{MovingRanks, TotalCounter};
 
     /// A convenience function testing the returned rank.
     fn expect_rank(
-        ranks: &MovingRanks<String, u64, 3, 5>,
+        ranks: &MovingRanks<String, u64, 3>,
         index: usize,
         id: &str,
         score: u64,
@@ -434,7 +556,7 @@ mod tests {
 
     #[test]
     fn moving_ranks() {
-        let mut ranks = MovingRanks::<String, u64, 3, 5>::new();
+        let mut ranks = MovingRanks::<String, u64, 3>::new(5);
         assert!(ranks.get_rank(0).is_none());
 
         ranks.add_score("foo".to_string(), 20);
@@ -511,7 +633,7 @@ mod tests {
 
     #[test]
     fn rounded_sma_prec10() {
-        let mut avg = RoundedSMA::<10, 100>::new();
+        let mut avg = RoundedSMA::<10>::new(100);
         avg.add_sample(1);
         assert_eq!(1.0, avg.average());
         avg.add_sample(1);
@@ -524,7 +646,7 @@ mod tests {
 
     #[test]
     fn rounded_sma_prec100() {
-        let mut avg = RoundedSMA::<100, 100>::new();
+        let mut avg = RoundedSMA::<100>::new(100);
         avg.add_sample(1);
         assert_eq!(1.0, avg.average());
         avg.add_sample(0);
@@ -537,7 +659,7 @@ mod tests {
 
     #[test]
     fn rounded_sma_window_size() {
-        let mut avg = RoundedSMA::<10, 2>::new();
+        let mut avg = RoundedSMA::<10>::new(2);
         avg.add_sample(1);
         assert_eq!(1.0, avg.average());
         avg.add_sample(0);

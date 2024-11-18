@@ -5,5 +5,6 @@ pub mod bootp;
 pub mod buffer;
 pub mod dhcp;
 
+#[allow(missing_docs)]
 #[cfg(test)]
 pub mod tests;
