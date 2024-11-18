@@ -35,6 +35,7 @@ use crate::{
     sse::{self, Event, EventGateway},
 };
 use endure_lib::{
+    auditor::{AuditConfigContext, SharedAuditConfigContext},
     capture::{self, Inactive, Listener},
     metric::MetricsStore,
 };
@@ -169,6 +170,9 @@ pub struct Dispatcher {
 
     /// Enables server sent events (SSE).
     pub enable_sse: bool,
+
+    /// Shared lockable pointer to the audit configuration.
+    pub audit_config_context: SharedAuditConfigContext,
 }
 
 impl Dispatcher {
@@ -186,6 +190,7 @@ impl Dispatcher {
             enable_prometheus: false,
             enable_api: false,
             enable_sse: false,
+            audit_config_context: AuditConfigContext::new().to_shared(),
         }
     }
 
@@ -340,7 +345,7 @@ impl Dispatcher {
     pub async fn dispatch(self) -> Result<(), DispatchError> {
         // Instantiate the analyzer. The analyzer examines the received traffic but
         // it also serves as a Prometheus metrics collector.
-        let mut analyzer = Analyzer::create_for_listener();
+        let mut analyzer = Analyzer::create_for_listener(&self.audit_config_context);
         analyzer
             .add_generic_auditors(&AuditProfile::LiveStreamFull)
             .await;
@@ -417,6 +422,7 @@ mod tests {
 
     use actix_web::body::to_bytes;
     use actix_web::web::Bytes;
+    use endure_lib::auditor::AuditConfigContext;
 
     use crate::analyzer::Analyzer;
     use crate::auditor::common::AuditProfile;
@@ -484,7 +490,8 @@ mod tests {
 
     #[tokio::test]
     async fn encode_prometheus_metrics() {
-        let mut analyzer = Analyzer::create_for_listener();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_listener(&audit_config_context);
         analyzer
             .add_dhcpv4_auditors(&AuditProfile::LiveStreamFull)
             .await;

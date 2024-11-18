@@ -10,47 +10,48 @@ use super::{
     },
     metric::{
         METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
-        METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
         METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
-        METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
         METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
-        METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
     },
-    util::{RoundedSMA, RoundedSTA},
+    util::{Average, FromMetricScope, RoundedSMA, RoundedSTA},
 };
 use crate::auditor::common::AuditProfile;
-use endure_lib::metric::{FromMetricsStore, InitMetrics, Metric, MetricValue, SharedMetricsStore};
-use endure_macros::{AuditProfileCheck, FromMetricsStore};
+use endure_lib::{
+    auditor::{CreateAuditor, SharedAuditConfigContext},
+    format_help,
+    metric::{InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
+};
+use endure_macros::{AuditProfileCheck, CreateAuditor};
+use std::fmt::Debug;
 
-/// An auditor maintaining the average time between different exchanges
-/// in the DORA exchange in all messages.
-///
-/// # Profiles
-///
-/// This auditor is used for analyzing capture files when the metrics are displayed
-/// at the end of the analysis.
-///
-#[derive(AuditProfileCheck, Debug, FromMetricsStore)]
-#[profiles(AuditProfile::PcapFinalFull)]
-pub struct DORARoundtripTotalAuditor {
-    do_roundtrip: RoundedSTA<1>,
-    ra_roundtrip: RoundedSTA<1>,
-    dora_roundtrip: RoundedSTA<1>,
+#[derive(Debug)]
+struct DORARoundtripAuditor<AverageImpl> {
+    metric_scope: MetricScope,
     metrics_store: SharedMetricsStore,
+    do_roundtrip: AverageImpl,
+    ra_roundtrip: AverageImpl,
+    dora_roundtrip: AverageImpl,
 }
 
-impl Default for DORARoundtripTotalAuditor {
-    fn default() -> Self {
+impl<AverageImpl> DORARoundtripAuditor<AverageImpl>
+where
+    AverageImpl: FromMetricScope,
+{
+    pub fn new(metrics_store: &SharedMetricsStore, metric_scope: MetricScope) -> Self {
         Self {
-            dora_roundtrip: RoundedSTA::new(),
-            do_roundtrip: RoundedSTA::new(),
-            ra_roundtrip: RoundedSTA::new(),
-            metrics_store: Default::default(),
+            metrics_store: metrics_store.clone(),
+            do_roundtrip: AverageImpl::from_metric_scope(&metric_scope),
+            ra_roundtrip: AverageImpl::from_metric_scope(&metric_scope),
+            dora_roundtrip: AverageImpl::from_metric_scope(&metric_scope),
+            metric_scope,
         }
     }
 }
 
-impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
+impl<AverageImpl> DHCPv4TransactionAuditor for DORARoundtripAuditor<AverageImpl>
+where
+    AverageImpl: Average + Debug + Send + Sync,
+{
     fn audit(&mut self, transaction: &mut DHCPv4Transaction) {
         // Need to own the transaction because we're going to access
         // it several times.
@@ -83,7 +84,7 @@ impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
         }
     }
 
-    fn collect_metrics(&mut self) {
+    fn collect_metrics(&self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
@@ -100,25 +101,81 @@ impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
     }
 }
 
-impl InitMetrics for DORARoundtripTotalAuditor {
-    fn init_metrics(&mut self, metrics_store: &SharedMetricsStore) {
-        self.metrics_store = metrics_store.clone();
+impl<AverageImpl> InitMetrics for DORARoundtripAuditor<AverageImpl>
+where
+    AverageImpl: Average,
+{
+    fn init_metrics(&self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
-            "Average time in milliseconds to perform a 4-way (DORA) exchange in all transactions.",
+            &format_help!(
+                "Average time in milliseconds to perform a 4-way (DORA) exchange.",
+                self.metric_scope
+            ),
             MetricValue::Float64Value(self.dora_roundtrip.average()),
         ));
         metrics_store.set_metric(Metric::new(
             METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
-            "Average time in milliseconds to complete a successful Discover/Offer exchange in all transactions.",
+            &format_help!(
+                "Average time in milliseconds to complete a successful Discover/Offer exchange.",
+                self.metric_scope
+            ),
             MetricValue::Float64Value(self.do_roundtrip.average()),
         ));
         metrics_store.set_metric(Metric::new(
             METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
-            "Average time in milliseconds to complete a successful Request/Ack exchange within a 4-way (DORA) exchange in all transactions.",
+            &format_help!("Average time in milliseconds to complete a successful Request/Ack exchange within a 4-way (DORA) exchange.", self.metric_scope),
             MetricValue::Float64Value(self.ra_roundtrip.average()),
         ));
+    }
+}
+
+/// An auditor maintaining the average time between different exchanges
+/// in the DORA exchange in all messages.
+///
+/// # Profiles
+///
+/// This auditor is used for analyzing capture files when the metrics are displayed
+/// at the end of the analysis.
+///
+#[derive(AuditProfileCheck, CreateAuditor, Debug)]
+#[profiles(AuditProfile::PcapFinalFull)]
+pub struct DORARoundtripTotalAuditor {
+    auditor: DORARoundtripAuditor<RoundedSTA<1>>,
+}
+
+impl DORARoundtripTotalAuditor {
+    /// Instantiates the auditor.
+    ///
+    /// # Parameters
+    ///
+    /// - `metrics_store` is a common instance of the store where metrics are maintained.
+    /// - `_config_context` is a pointer to the program configuration.
+    ///
+    pub fn new(
+        metrics_store: &SharedMetricsStore,
+        _config_context: &SharedAuditConfigContext,
+    ) -> Self {
+        Self {
+            auditor: DORARoundtripAuditor::new(metrics_store, MetricScope::Total),
+        }
+    }
+}
+
+impl DHCPv4TransactionAuditor for DORARoundtripTotalAuditor {
+    fn audit(&mut self, transaction: &mut DHCPv4Transaction) {
+        self.auditor.audit(transaction)
+    }
+
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics();
+    }
+}
+
+impl InitMetrics for DORARoundtripTotalAuditor {
+    fn init_metrics(&self) {
+        self.auditor.init_metrics()
     }
 }
 
@@ -130,102 +187,54 @@ impl InitMetrics for DORARoundtripTotalAuditor {
 /// This auditor is used for analyzing live packet streams or capture files
 /// when the metrics are periodically displayed during the analysis.
 ///
-#[derive(AuditProfileCheck, Debug, FromMetricsStore)]
+#[derive(AuditProfileCheck, CreateAuditor, Debug)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct DORARoundtripStreamAuditor {
-    do_roundtrip: RoundedSMA<1, 100>,
-    ra_roundtrip: RoundedSMA<1, 100>,
-    dora_roundtrip: RoundedSMA<1, 100>,
-    metrics_store: SharedMetricsStore,
+    auditor: DORARoundtripAuditor<RoundedSMA<1>>,
 }
 
-impl Default for DORARoundtripStreamAuditor {
-    fn default() -> Self {
+impl DORARoundtripStreamAuditor {
+    /// Instantiates the auditor.
+    ///
+    /// # Parameters
+    ///
+    /// - `metrics_store` is a common instance of the store where metrics are maintained.
+    /// - `config_context` is a pointer to the program configuration.
+    ///
+    pub fn new(
+        metrics_store: &SharedMetricsStore,
+        config_context: &SharedAuditConfigContext,
+    ) -> Self {
         Self {
-            dora_roundtrip: RoundedSMA::new(),
-            do_roundtrip: RoundedSMA::new(),
-            ra_roundtrip: RoundedSMA::new(),
-            metrics_store: Default::default(),
+            auditor: DORARoundtripAuditor::new(
+                metrics_store,
+                MetricScope::Moving(config_context.read().unwrap().global.sampling_window_size),
+            ),
         }
     }
 }
 
 impl DHCPv4TransactionAuditor for DORARoundtripStreamAuditor {
     fn audit(&mut self, transaction: &mut DHCPv4Transaction) {
-        // Need to own the transaction because we're going to access
-        // it several times.
-        let transaction = transaction.to_owned();
-        let kind = transaction.kind();
-        if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true))
-            || kind.eq(&DHCPv4TransactionKind::Discovery(true))
-        {
-            // DO exchange.
-            let discover = transaction.discover.unwrap();
-            let offer = transaction.offer.as_ref().unwrap();
-            if let Ok(duration) = offer.timestamp().duration_since(discover.timestamp()) {
-                self.do_roundtrip
-                    .add_sample((duration.as_micros() as u64) / 100);
-            }
-            if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true)) {
-                // DORA exchange.
-                let ack = transaction.ack.unwrap();
-                if let Ok(duration) = ack.timestamp().duration_since(discover.timestamp()) {
-                    self.dora_roundtrip
-                        .add_sample((duration.as_micros() as u64) / 100);
-                }
-                // RA exchange.
-                let request = transaction.request.unwrap();
-                if let Ok(duration) = ack.timestamp().duration_since(request.timestamp()) {
-                    self.ra_roundtrip
-                        .add_sample((duration.as_micros() as u64) / 100);
-                }
-            }
-        }
+        self.auditor.audit(transaction)
     }
 
-    fn collect_metrics(&mut self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric_value(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
-            MetricValue::Float64Value(self.dora_roundtrip.average() / 10f64),
-        );
-        metrics_store.set_metric_value(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
-            MetricValue::Float64Value(self.do_roundtrip.average() / 10f64),
-        );
-        metrics_store.set_metric_value(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
-            MetricValue::Float64Value(self.ra_roundtrip.average() / 10f64),
-        );
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics()
     }
 }
 
 impl InitMetrics for DORARoundtripStreamAuditor {
-    fn init_metrics(&mut self, metrics_store: &SharedMetricsStore) {
-        self.metrics_store = metrics_store.clone();
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric(Metric::new(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
-            "Average time in milliseconds to perform a 4-way (DORA) exchange in last 100 transactions.",
-            MetricValue::Float64Value(self.dora_roundtrip.average()),
-        ));
-        metrics_store.set_metric(Metric::new(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
-            "Average time in milliseconds to complete a successful Discover/Offer exchange in last 100 transactions.",
-            MetricValue::Float64Value(self.do_roundtrip.average()),
-        ));
-        metrics_store.set_metric(Metric::new(
-            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
-            "Average time in milliseconds to complete a successful Request/Ack exchange within a 4-way (DORA) exchange in last 100 transactions.",
-            MetricValue::Float64Value(self.ra_roundtrip.average()),
-        ));
+    fn init_metrics(&self) {
+        self.auditor.init_metrics()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use endure_lib::{
-        metric::{FromMetricsStore, MetricsStore},
+        auditor::{AuditConfigContext, CreateAuditor},
+        metric::MetricsStore,
         time_wrapper::TimeWrapper,
     };
 
@@ -236,11 +245,8 @@ mod tests {
             },
             metric::{
                 METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
-                METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
                 METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
-                METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
                 METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
-                METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
             },
             roundtrip::{DORARoundtripStreamAuditor, DORARoundtripTotalAuditor},
         },
@@ -292,7 +298,9 @@ mod tests {
     #[test]
     fn roundtrip_total_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
-        let mut auditor = DORARoundtripTotalAuditor::from_metrics_store(&metrics_store);
+        let config_context = AuditConfigContext::new().to_shared();
+        let mut auditor =
+            DORARoundtripTotalAuditor::create_auditor(&metrics_store, &config_context);
 
         // Create a transaction holding DHCPDISCOVER.
         let mut transaction = create_transaction(5, 100000);
@@ -330,7 +338,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG)
+                .get_metric_value_unwrapped::<f64>(METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,)
         );
 
         assert_eq!(
@@ -339,7 +347,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
                 )
         );
 
@@ -349,7 +357,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
                 )
         );
     }
@@ -357,7 +365,9 @@ mod tests {
     #[test]
     fn roundtrip_stream_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
-        let mut auditor = DORARoundtripStreamAuditor::from_metrics_store(&metrics_store);
+        let config_context = AuditConfigContext::new().to_shared();
+        let mut auditor =
+            DORARoundtripStreamAuditor::create_auditor(&metrics_store, &config_context);
 
         // Create a transaction holding DHCPDISCOVER.
         let mut transaction = create_transaction(5, 100000);
@@ -368,9 +378,9 @@ mod tests {
         let metrics_store_ref = metrics_store.clone();
 
         for metric in vec![
-            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100,
-            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100,
-            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
+            METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
         ] {
             assert_eq!(
                 0.0,
@@ -395,9 +405,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG_100
-                )
+                .get_metric_value_unwrapped::<f64>(METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,)
         );
 
         assert_eq!(
@@ -406,7 +414,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG_100
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
                 )
         );
 
@@ -416,7 +424,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<f64>(
-                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG_100
+                    METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
                 )
         );
     }

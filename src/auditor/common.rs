@@ -407,7 +407,7 @@ pub trait GenericPacketAuditor: Debug + Send + Sync {
     /// This function is called by the [`crate::analyzer::Analyzer`] for each
     /// auditor. The auditor writes its metrics into the metrics store.
     ///
-    fn collect_metrics(&mut self);
+    fn collect_metrics(&self);
 }
 
 /// A trait that must be implemented by each DHCPv4 auditor.
@@ -439,7 +439,7 @@ pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
     /// This function is called by the [`crate::analyzer::Analyzer`] for each
     /// auditor. The auditor writes its metrics into the metrics store.
     ///
-    fn collect_metrics(&mut self);
+    fn collect_metrics(&self);
 }
 
 /// A trait that must be implemented by the transactional DHCPv4 auditors.
@@ -468,7 +468,7 @@ pub trait DHCPv4TransactionAuditor: Debug + Send + Sync {
     /// This function is called by the [`crate::analyzer::Analyzer`] for each
     /// auditor. The auditor writes its metrics into the metrics store.
     ///
-    fn collect_metrics(&mut self);
+    fn collect_metrics(&self);
 }
 
 /// A trait implemented by the auditors checking if they should be executed
@@ -589,7 +589,10 @@ mod tests {
         .into_shared_parsable();
         let result = transaction.insert(TimeWrapper::from(packet));
         assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::FourWayExchange(true), transaction.kind());
+        assert_eq!(
+            DHCPv4TransactionKind::FourWayExchange(true),
+            transaction.kind()
+        );
     }
 
     #[test]
