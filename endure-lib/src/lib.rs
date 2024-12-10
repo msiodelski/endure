@@ -13,6 +13,7 @@
 #![deny(rustdoc::unescaped_backticks)]
 #![deny(rustdoc::redundant_explicit_links)]
 
+pub mod auditor;
 pub mod capture;
 pub mod metric;
 pub mod time_wrapper;

@@ -17,41 +17,46 @@
 
 use super::{
     common::{AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor},
-    util::{MovingRanks, RoundedSMA, RoundedSTA},
+    util::{Average, FromMetricScope, MovingRanks, RoundedSMA, RoundedSTA},
 };
 use crate::auditor::metric::*;
 use crate::proto::{bootp::OpCode, dhcp::v4};
-use endure_lib::metric::{FromMetricsStore, InitMetrics, Metric, MetricValue, SharedMetricsStore};
-use endure_macros::{AuditProfileCheck, FromMetricsStore};
+use endure_lib::{
+    auditor::{CreateAuditor, SharedAuditConfigContext},
+    format_help,
+    metric::{InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
+};
+use endure_macros::{AuditProfileCheck, CreateAuditor};
+use std::fmt::Debug;
 
-/// An auditor maintaining the statistics of DHCP retransmissions in all messages.
-///
-/// # Profiles
-///
-/// This auditor is used for analyzing capture files when the metrics are displayed
-/// at the end of the analysis.
-///
-#[derive(AuditProfileCheck, Debug, FromMetricsStore)]
-#[profiles(AuditProfile::PcapFinalFull)]
-pub struct RetransmissionTotalAuditor {
+#[derive(Debug)]
+struct RetransmissionAuditor<AverageImpl> {
+    metric_scope: MetricScope,
     metrics_store: SharedMetricsStore,
-    retransmits: RoundedSTA<10>,
-    secs: RoundedSTA<10>,
-    longest_trying_client: MovingRanks<String, u16, 1, { usize::MAX }>,
+    retransmits: AverageImpl,
+    secs: AverageImpl,
+    longest_trying_client: MovingRanks<String, u16, 1>,
 }
 
-impl Default for RetransmissionTotalAuditor {
-    fn default() -> Self {
+impl<AverageImpl> RetransmissionAuditor<AverageImpl>
+where
+    AverageImpl: FromMetricScope,
+{
+    pub fn new(metrics_store: &SharedMetricsStore, metric_scope: MetricScope) -> Self {
         Self {
-            metrics_store: Default::default(),
-            retransmits: RoundedSTA::new(),
-            secs: RoundedSTA::new(),
-            longest_trying_client: MovingRanks::new(),
+            metrics_store: metrics_store.clone(),
+            retransmits: AverageImpl::from_metric_scope(&metric_scope),
+            secs: AverageImpl::from_metric_scope(&metric_scope),
+            longest_trying_client: MovingRanks::new(usize::MAX),
+            metric_scope,
         }
     }
 }
 
-impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
+impl<AverageImpl> DHCPv4PacketAuditor for RetransmissionAuditor<AverageImpl>
+where
+    AverageImpl: Average + Debug + Send + Sync,
+{
     fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
         let mut packet = packet.write().unwrap();
         let opcode = packet.opcode();
@@ -82,7 +87,7 @@ impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
         };
     }
 
-    fn collect_metrics(&mut self) {
+    fn collect_metrics(&self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric_value(
             METRIC_BOOTP_RETRANSMIT_PERCENT,
@@ -103,26 +108,78 @@ impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
     }
 }
 
-impl InitMetrics for RetransmissionTotalAuditor {
-    fn init_metrics(&mut self, metrics_store: &SharedMetricsStore) {
-        self.metrics_store = metrics_store.clone();
+impl<AverageImpl> InitMetrics for RetransmissionAuditor<AverageImpl>
+where
+    AverageImpl: Average + Sync,
+{
+    fn init_metrics(&self) {
         let mut metrics_store = self.metrics_store.write().unwrap();
         metrics_store.set_metric(Metric::new(
             METRIC_BOOTP_RETRANSMIT_PERCENT,
-            "Percentage of the retransmissions in all messages sent by clients.",
+            &format_help!("Percentage of the retransmissions.", self.metric_scope),
             MetricValue::Float64Value(self.retransmits.average()),
         ));
 
         metrics_store.set_metric(Metric::new(
             METRIC_BOOTP_RETRANSMIT_SECS_AVG,
-            "Average retransmission time in all messages (i.e. average time in retransmissions to acquire a new lease).",
+            &format_help!("Average retransmission time.", self.metric_scope),
             MetricValue::Float64Value(self.secs.average()),
         ));
         metrics_store.set_metric(Metric::new(
             METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT,
-            "MAC address of the the client who has been trying the longest to acquire a lease in all messages.",
+            &format_help!(
+                "MAC address of the the client who has been trying the longest to acquire a lease.",
+                self.metric_scope
+            ),
             MetricValue::StringValue("".to_string()),
         ));
+    }
+}
+
+/// An auditor maintaining the statistics of DHCP retransmissions in all messages.
+///
+/// # Profiles
+///
+/// This auditor is used for analyzing capture files when the metrics are displayed
+/// at the end of the analysis.
+///
+#[derive(AuditProfileCheck, CreateAuditor, Debug)]
+#[profiles(AuditProfile::PcapFinalFull)]
+pub struct RetransmissionTotalAuditor {
+    auditor: RetransmissionAuditor<RoundedSTA<10>>,
+}
+
+impl RetransmissionTotalAuditor {
+    /// Instantiates the auditor.
+    ///
+    /// # Parameters
+    ///
+    /// - `metrics_store` is a common instance of the store where metrics are maintained.
+    /// - `_config_context` is a pointer to the program configuration.
+    ///
+    pub fn new(
+        metrics_store: &SharedMetricsStore,
+        _config_context: &SharedAuditConfigContext,
+    ) -> Self {
+        Self {
+            auditor: RetransmissionAuditor::new(metrics_store, MetricScope::Total),
+        }
+    }
+}
+
+impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
+    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+        self.auditor.audit(packet)
+    }
+
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics()
+    }
+}
+
+impl InitMetrics for RetransmissionTotalAuditor {
+    fn init_metrics(&self) {
+        self.auditor.init_metrics()
     }
 }
 
@@ -133,104 +190,55 @@ impl InitMetrics for RetransmissionTotalAuditor {
 /// This auditor is used for analyzing live packet streams or capture files
 /// when the metrics are periodically displayed during the analysis.
 ///
-#[derive(AuditProfileCheck, Debug, FromMetricsStore)]
+#[derive(AuditProfileCheck, CreateAuditor, Debug)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct RetransmissionStreamAuditor {
-    metrics_store: SharedMetricsStore,
-    retransmits: RoundedSMA<10, 100>,
-    secs: RoundedSMA<10, 100>,
-    longest_trying_client: MovingRanks<String, u16, 1, 100>,
+    auditor: RetransmissionAuditor<RoundedSMA<10>>,
 }
 
-impl Default for RetransmissionStreamAuditor {
-    fn default() -> Self {
+impl RetransmissionStreamAuditor {
+    /// Instantiates the auditor.
+    ///
+    /// # Parameters
+    ///
+    /// - `metrics_store` is a common instance of the store where metrics are maintained.
+    /// - `config_context` is a pointer to the program configuration.
+    ///
+    pub fn new(
+        metrics_store: &SharedMetricsStore,
+        config_context: &SharedAuditConfigContext,
+    ) -> Self {
         Self {
-            metrics_store: Default::default(),
-            retransmits: RoundedSMA::new(),
-            secs: RoundedSMA::new(),
-            longest_trying_client: MovingRanks::new(),
+            auditor: RetransmissionAuditor::new(
+                metrics_store,
+                MetricScope::Moving(config_context.read().unwrap().global.sampling_window_size),
+            ),
         }
     }
 }
 
 impl DHCPv4PacketAuditor for RetransmissionStreamAuditor {
     fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
-        let mut packet = packet.write().unwrap();
-        let opcode = packet.opcode();
-        if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
-            return;
-        }
-        match packet.secs() {
-            Ok(secs) => {
-                if secs > 0 {
-                    // Since we want the percentage rather than the average between 0 and 1,
-                    // let's add 100 (instead of 1), so we get appropriate precision and we
-                    // don't have to multiply the resulting average by 100 later on.
-                    self.retransmits.add_sample(100u64);
-                    // Get the client's hardware address.
-                    match packet.chaddr() {
-                        Ok(haddr) => {
-                            self.longest_trying_client
-                                .add_score(haddr.to_string(), secs);
-                        }
-                        Err(_) => {}
-                    }
-                } else {
-                    self.retransmits.add_sample(0u64);
-                }
-                self.secs.add_sample(secs as u64);
-            }
-            Err(_) => {}
-        };
+        self.auditor.audit(packet)
     }
 
-    fn collect_metrics(&mut self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_RETRANSMIT_PERCENT_100,
-            MetricValue::Float64Value(self.retransmits.average()),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_RETRANSMIT_SECS_AVG_100,
-            MetricValue::Float64Value(self.secs.average()),
-        );
-
-        if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
-            metrics_store.set_metric_value(
-                METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
-                MetricValue::StringValue(longest_trying_client.id.clone()),
-            );
-        }
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics()
     }
 }
 
 impl InitMetrics for RetransmissionStreamAuditor {
-    fn init_metrics(&mut self, metrics_store: &SharedMetricsStore) {
-        self.metrics_store = metrics_store.clone();
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric(Metric::new(
-            METRIC_BOOTP_RETRANSMIT_PERCENT_100,
-            "Percentage of the retransmissions in the last 100 messages sent by clients.",
-            MetricValue::Float64Value(self.retransmits.average()),
-        ));
-
-        metrics_store.set_metric(Metric::new(
-            METRIC_BOOTP_RETRANSMIT_SECS_AVG_100,
-            "Average retransmission time in the last 100 messages (i.e. average time in retransmissions to acquire a new lease).",
-            MetricValue::Float64Value(self.secs.average()),
-        ));
-        metrics_store.set_metric(Metric::new(
-            METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100,
-            "MAC address of the the client who has been trying the longest to acquire a lease in the last 100 messages.",
-            MetricValue::StringValue("".to_string()),
-        ));
+    fn init_metrics(&self) {
+        self.auditor.init_metrics()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use endure_lib::metric::{FromMetricsStore, MetricsStore};
+    use endure_lib::{
+        auditor::{AuditConfigContext, CreateAuditor},
+        metric::MetricsStore,
+    };
 
     use crate::{
         auditor::{
@@ -261,7 +269,9 @@ mod tests {
     #[test]
     fn retransmissions_total_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
-        let mut auditor = RetransmissionTotalAuditor::from_metrics_store(&metrics_store);
+        let config_context = AuditConfigContext::new().to_shared();
+        let mut auditor =
+            RetransmissionTotalAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
@@ -353,7 +363,9 @@ mod tests {
     #[test]
     fn retransmissions_stream_auditor_audit() {
         let metrics_store = MetricsStore::new().to_shared();
-        let mut auditor = RetransmissionStreamAuditor::from_metrics_store(&metrics_store);
+        let config_context = AuditConfigContext::new().to_shared();
+        let mut auditor =
+            RetransmissionStreamAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
             .set(OPCODE_POS, &vec![1])
@@ -369,7 +381,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT)
         );
 
         assert_eq!(
@@ -377,7 +389,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG)
         );
 
         assert_eq!(
@@ -386,7 +398,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<String>(
-                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT
                 )
         );
 
@@ -406,7 +418,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_PERCENT)
         );
 
         assert_eq!(
@@ -414,7 +426,7 @@ mod tests {
             metrics_store_ref
                 .read()
                 .unwrap()
-                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG_100)
+                .get_metric_value_unwrapped::<f64>(METRIC_BOOTP_RETRANSMIT_SECS_AVG)
         );
 
         assert_eq!(
@@ -423,7 +435,7 @@ mod tests {
                 .read()
                 .unwrap()
                 .get_metric_value_unwrapped::<String>(
-                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT_100
+                    METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT
                 )
         );
     }

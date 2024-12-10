@@ -108,21 +108,59 @@ pub fn derive_copy_into(input: TokenStream) -> TokenStream {
     )
 }
 
+/// A macro implementing the `CreateAuditor` trait for an auditor.
+///
+/// It creates an auditor's instance and calls `endure_lib::Metric::InitMetrics::init_metrics`
+/// to initialize metrics.
+///
+#[proc_macro_derive(CreateAuditor)]
+pub fn derive_create_auditor(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    TokenStream::from(quote!(
+    impl CreateAuditor for #name {
+        /// Instantiates the auditor and initializes its metrics.
+        fn create_auditor(metrics_store: &SharedMetricsStore, config_context: &SharedAuditConfigContext) -> Self {
+            let mut auditor = Self::new(metrics_store, config_context);
+            auditor.init_metrics();
+            auditor
+        }
+    }))
+}
+
 /// A macro implementing the `FromMetricsStore` trait for an auditor.
 ///
 /// It creates an auditor's instance using the [`Default`] implementation.
 /// Next, it calls the `init_metrics` function for this instance to initialize
 /// metrics used by the auditor in the metric store.
 ///
-#[proc_macro_derive(FromMetricsStore)]
+#[proc_macro_derive(FromMetricsStore, attributes(from_metrics_store_params))]
 pub fn derive_from_metrics_store(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = input.ident;
+
+    let params = input
+        .attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("from_metrics_store_params"));
+
+    let mut parsed_params: Vec<_> = vec![];
+    if let Some(params) = params {
+        let args = params
+            .parse_args_with(Punctuated::<Expr, Token![,]>::parse_terminated)
+            .unwrap();
+        for arg in args.iter() {
+            parsed_params.push(quote!(#arg));
+        }
+    }
+
     TokenStream::from(quote!(
-    impl FromMetricsStore for #name {
-        fn from_metrics_store(metrics_store: &SharedMetricsStore) -> Self {
-            let mut auditor: #name = Default::default();
-            auditor.init_metrics(metrics_store);
+    impl #name {
+        /// Instantiates the auditor with initializing the metrics in the metrics store.
+        pub fn from_metrics_store(metrics_store: &SharedMetricsStore #(, #parsed_params),*) -> Self {
+            let mut auditor = #name::new(metrics_store #(, #parsed_params),*);
+            auditor.init_metrics();
             auditor
         }
     }))
@@ -198,7 +236,7 @@ pub fn cond_add_auditor(input: TokenStream) -> TokenStream {
         return TokenStream::from(
             syn::Error::new(
                 args.span(),
-                "Incorrect number of arguments to the `cond_add_auditor` macro",
+                "`cond_add_auditor` macro requires one argument",
             )
             .to_compile_error(),
         );
@@ -207,7 +245,8 @@ pub fn cond_add_auditor(input: TokenStream) -> TokenStream {
 
     TokenStream::from(quote!(
         if #auditor_name::has_audit_profile(audit_profile) {
-            auditors.push(Arc::new(RwLock::new(Box::new(#auditor_name::from_metrics_store(&self.metrics_store)))));
+            let auditor = #auditor_name::create_auditor(&self.metrics_store, &self.audit_config_context);
+            auditors.push(Arc::new(RwLock::new(Box::new(auditor))));
         }
     ))
 }

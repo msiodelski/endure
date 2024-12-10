@@ -8,7 +8,10 @@ use std::{
 
 use crate::{analyzer::Analyzer, auditor::common::AuditProfile};
 use csv::{Writer, WriterBuilder};
-use endure_lib::capture::{self, Active, Inactive, Reader, ReaderError};
+use endure_lib::{
+    auditor::AuditConfigContext,
+    capture::{self, Active, Inactive, Reader, ReaderError},
+};
 use thiserror::Error;
 
 /// An enum of errors returned by the [`PcapProcessor::run`]
@@ -123,7 +126,8 @@ impl PcapProcessor {
             })?;
 
         // Create the analyzer.
-        let mut analyzer = Analyzer::create_for_reader();
+        let audit_config_context = AuditConfigContext::new().to_shared();
+        let mut analyzer = Analyzer::create_for_reader(&audit_config_context);
         match self.report_format {
             ReportFormat::Csv(ReportType::Stream) => {
                 analyzer
