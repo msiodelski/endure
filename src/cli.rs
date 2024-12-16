@@ -104,6 +104,9 @@ enum Commands {
         report_interval: u64,
         #[command(flatten)]
         reporting: ReportingArgs,
+        /// Specifies the maximum number of the most recent packets for which the metrics are calculated.
+        #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..65536), default_value_t = 100)]
+        sampling_window_size: u64,
         /// Specifies a location of the directory where pcap files are saved.
         #[arg(short, long, value_parser = directory_path_parser)]
         pcap_directory: Option<String>,
@@ -121,6 +124,10 @@ enum Commands {
         /// Enable periodic metrics reports (can be only used with --csv option).
         #[arg(long, action)]
         stream: bool,
+        /// Specifies the maximum number of the most recent packets for which the metrics are calculated
+        /// (must be used with --stream option).
+        #[arg(short, long, value_parser = clap::value_parser!(u64).range(1..65536))]
+        sampling_window_size: Option<u64>,
     },
 }
 
@@ -199,6 +206,7 @@ impl Cli {
                             api,
                             sse,
                         },
+                    sampling_window_size,
                     pcap_directory,
                 } => {
                     // Check if the loopback interface has been explicitly.
@@ -259,6 +267,14 @@ impl Cli {
                     // Set interval for the periodic report.
                     dispatcher.report_interval = report_interval;
 
+                    // Set sampling window size.
+                    dispatcher
+                        .audit_config_context
+                        .write()
+                        .unwrap()
+                        .global
+                        .sampling_window_size = sampling_window_size as usize;
+
                     // Run the dispatcher. It may fail starting the HTTP server or a CSV writer.
                     let result = dispatcher.dispatch().await;
                     match result {
@@ -273,6 +289,7 @@ impl Cli {
                     pcap,
                     output,
                     stream,
+                    sampling_window_size,
                     reporting: PcapReportingFormat { json, csv },
                 } => {
                     // The --stream option can only be used with --csv.
@@ -316,6 +333,42 @@ impl Cli {
                             true => processor.report_format = ReportFormat::Csv(ReportType::Stream),
                             false => processor.report_format = ReportFormat::Csv(ReportType::Final),
                         }
+                    }
+
+                    // Set sampling window size if the report type is not final.
+                    if let Some(sampling_window_size) = sampling_window_size {
+                        if processor.report_format != ReportFormat::Csv(ReportType::Stream) {
+                            let command = Cli::command();
+                            let mut err =
+                                clap::Error::new(ErrorKind::ArgumentConflict).with_cmd(&command);
+                            match processor.report_format {
+                                ReportFormat::Csv(_) => {
+                                    err.insert(
+                                        ContextKind::PriorArg,
+                                        ContextValue::String("--csv (without --stream)".to_owned()),
+                                    );
+                                }
+                                ReportFormat::Json => {
+                                    err.insert(
+                                        ContextKind::PriorArg,
+                                        ContextValue::String("--json".to_owned()),
+                                    );
+                                }
+                            }
+                            err.insert(
+                                ContextKind::InvalidArg,
+                                ContextValue::String("--sampling-window-size".to_owned()),
+                            );
+                            err.print().expect("failed to print error");
+                            exit(128);
+                        }
+                        // Everything ok. Let's override the default value.
+                        processor
+                            .audit_config_context
+                            .write()
+                            .unwrap()
+                            .global
+                            .sampling_window_size = sampling_window_size as usize;
                     }
 
                     // Analyze the capture and print the results.

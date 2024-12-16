@@ -8,7 +8,10 @@ use std::{
 
 use crate::{analyzer::Analyzer, auditor::common::AuditProfile};
 use csv::{Writer, WriterBuilder};
-use endure_lib::capture::{self, Active, Inactive, Reader, ReaderError};
+use endure_lib::{
+    auditor::{AuditConfigContext, SharedAuditConfigContext},
+    capture::{self, Active, Inactive, Reader, ReaderError},
+};
 use thiserror::Error;
 
 /// An enum of errors returned by the [`PcapProcessor::run`]
@@ -74,6 +77,8 @@ pub struct PcapProcessor {
     pub output_dest: OutputDest,
     /// Indicates how metrics are reported (e.g., CSV).
     pub report_format: ReportFormat,
+    /// Shared lockable pointer to the audit configuration.
+    pub audit_config_context: SharedAuditConfigContext,
     /// Reader instance to be used for parsing the `pcap` file.
     reader: capture::Reader<Inactive>,
 }
@@ -92,6 +97,7 @@ impl PcapProcessor {
         PcapProcessor {
             output_dest: OutputDest::Stdout,
             report_format: ReportFormat::Csv(ReportType::Stream),
+            audit_config_context: AuditConfigContext::new().to_shared(),
             reader,
         }
     }
@@ -123,7 +129,7 @@ impl PcapProcessor {
             })?;
 
         // Create the analyzer.
-        let mut analyzer = Analyzer::create_for_reader();
+        let mut analyzer = Analyzer::create_for_reader(&self.audit_config_context);
         match self.report_format {
             ReportFormat::Csv(ReportType::Stream) => {
                 analyzer
