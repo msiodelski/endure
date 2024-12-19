@@ -1,5 +1,11 @@
 # ChangeLog
 
+* Added a command line switch `--sampling-window-size` specifying
+  the number of the most recent packets used for computing metrics.
+  The lower the parameter the more dynamic are the metrics
+  variations.
+  (Github #66, #67).
+
 ## Release v0.4.0 (November 14th, 2024)
 
 * Added a Docker configuration that launches two containers, one
