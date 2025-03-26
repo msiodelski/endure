@@ -6,12 +6,13 @@ use std::{
         HashMap,
     },
     fmt::Debug,
+    net::Ipv4Addr,
     sync::Arc,
     time::Instant,
 };
 
 use actix_web::cookie::time::Duration;
-use endure_lib::{capture::PacketWrapper, time_wrapper::TimeWrapper};
+use endure_lib::{capture::PacketWrapper, metric::CollectMetrics, time_wrapper::TimeWrapper};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
@@ -401,23 +402,19 @@ pub trait GenericPacketAuditor: Debug + Send + Sync {
     ///
     /// - `packet` - a packet wrapper holding packet metadata.
     fn audit(&mut self, packet: &PacketWrapper);
-
-    /// Collects metrics from the auditor in the metrics store.
-    ///
-    /// This function is called by the [`crate::analyzer::Analyzer`] for each
-    /// auditor. The auditor writes its metrics into the metrics store.
-    ///
-    fn collect_metrics(&self);
 }
+
+/// A trait that combines [`GenericPacketAuditor`] and [`CollectMetrics`].
+///
+/// It is used for storing auditors in collections.
+pub trait GenericPacketAuditorWithMetrics: GenericPacketAuditor + CollectMetrics {}
 
 /// A trait that must be implemented by each DHCPv4 auditor.
 ///
 /// The [`crate::analyzer::Analyzer`] calls the [`DHCPv4PacketAuditor::audit`]
 /// function for each received BOOTP packet. The auditor runs specialized
 /// checks on the packet and updates its local state and maintained
-/// metrics. The [`crate::analyzer::Analyzer`] can call
-/// [`DHCPv4PacketAuditor::collect_metrics`] to gather the metrics from the
-/// auditor periodically.
+/// metrics.
 pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
     /// Runs an audit on the received packet.
     ///
@@ -431,16 +428,21 @@ pub trait DHCPv4PacketAuditor: Debug + Send + Sync {
     ///
     /// # Parameters
     ///
+    /// - `source_ip_address` - a source IP address of the packet.
+    /// - `dest_ip_address` - a destination IP address of the packet.
     /// - `packet` - a partially parsed `DHCPv4` or `BOOTP` packet to be audited
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket);
-
-    /// Collects metrics from the auditor in the metrics store.
-    ///
-    /// This function is called by the [`crate::analyzer::Analyzer`] for each
-    /// auditor. The auditor writes its metrics into the metrics store.
-    ///
-    fn collect_metrics(&self);
+    fn audit(
+        &mut self,
+        source_ip_address: &Ipv4Addr,
+        dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    );
 }
+
+/// A trait that combines [`DHCPv4PacketAuditor`] and [`CollectMetrics`].
+///
+/// It is used for storing auditors in collections.
+pub trait DHCPv4PacketAuditorWithMetrics: DHCPv4PacketAuditor + CollectMetrics {}
 
 /// A trait that must be implemented by the transactional DHCPv4 auditors.
 ///
@@ -462,14 +464,12 @@ pub trait DHCPv4TransactionAuditor: Debug + Send + Sync {
     /// - `transaction` is a DHCPv4 transaction holding client requests and
     ///   server responses for the particular `xid` (transaction identifier).
     fn audit(&mut self, transaction: &mut DHCPv4Transaction);
-
-    /// Collects metrics from the auditor in the metrics store.
-    ///
-    /// This function is called by the [`crate::analyzer::Analyzer`] for each
-    /// auditor. The auditor writes its metrics into the metrics store.
-    ///
-    fn collect_metrics(&self);
 }
+
+/// A trait that combines [`DHCPv4TransactionAuditor`] and [`CollectMetrics`].
+///
+/// It is used for storing auditors in collections.
+pub trait DHCPv4TransactionAuditorWithMetrics: DHCPv4TransactionAuditor + CollectMetrics {}
 
 /// A trait implemented by the auditors checking if they should be executed
 /// for the specified [`AuditProfile`].

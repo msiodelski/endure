@@ -3,7 +3,7 @@
 use endure_lib::{auditor::SharedAuditConfigContext, time_wrapper::TimeWrapper};
 use futures::executor::block_on;
 use libc::timeval;
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, net::Ipv4Addr, sync::Arc};
 use tokio::sync::RwLock;
 
 use endure_lib::{
@@ -13,15 +13,18 @@ use endure_lib::{
 };
 use endure_macros::cond_add_auditor;
 
-use crate::auditor::common::AuditProfileCheck;
 use crate::auditor::common::{
-    AuditProfile, DHCPv4PacketAuditor, DHCPv4TransactionAuditor, DHCPv4TransactionCache,
-    GenericPacketAuditor, SharedDHCPv4TransactionCache,
+    AuditProfileCheck, DHCPv4PacketAuditorWithMetrics, DHCPv4TransactionAuditorWithMetrics,
+    GenericPacketAuditorWithMetrics,
 };
 use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
 use crate::auditor::retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor};
 use crate::auditor::roundtrip::{DORARoundtripStreamAuditor, DORARoundtripTotalAuditor};
+use crate::auditor::{
+    common::{AuditProfile, DHCPv4TransactionCache, SharedDHCPv4TransactionCache},
+    conversation::{ConversationStreamAuditor, ConversationTotalAuditor},
+};
 use crate::proto::dhcp::v4::{self};
 
 use actix_web::HttpResponse;
@@ -172,9 +175,9 @@ impl Analyzer {
 
 #[derive(Clone, Debug)]
 struct AnalyzerState {
-    generic_auditors: Vec<Arc<RwLock<Box<dyn GenericPacketAuditor>>>>,
-    dhcpv4_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4PacketAuditor>>>>,
-    dhcpv4_transactional_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4TransactionAuditor>>>>,
+    generic_auditors: Vec<Arc<RwLock<Box<dyn GenericPacketAuditorWithMetrics>>>>,
+    dhcpv4_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4PacketAuditorWithMetrics>>>>,
+    dhcpv4_transactional_auditors: Vec<Arc<RwLock<Box<dyn DHCPv4TransactionAuditorWithMetrics>>>>,
     dhcpv4_transactions: SharedDHCPv4TransactionCache,
     metrics_store: SharedMetricsStore,
     audit_config_context: SharedAuditConfigContext,
@@ -242,6 +245,8 @@ impl AnalyzerState {
         cond_add_auditor!(OpCodeStreamAuditor);
         cond_add_auditor!(RetransmissionTotalAuditor);
         cond_add_auditor!(RetransmissionStreamAuditor);
+        cond_add_auditor!(ConversationTotalAuditor);
+        cond_add_auditor!(ConversationStreamAuditor);
 
         let auditors = &mut self.dhcpv4_transactional_auditors;
         cond_add_auditor!(DORARoundtripTotalAuditor);
@@ -264,8 +269,17 @@ impl AnalyzerState {
     ///
     /// # Parameters
     ///
+    /// - `packet_time` - a timestamp of the received packet.
+    /// - `src_ip_address` - an IP address of the source of the packet.
+    /// - `dest_ip_address` - an IP address of the destination of the packet.
     /// - `packet` - a received unparsed DHCPv4 packet
-    async fn audit_dhcpv4(&self, packet_time: timeval, packet: &v4::RawPacket) {
+    async fn audit_dhcpv4(
+        &self,
+        packet_time: timeval,
+        src_ip_address: &Ipv4Addr,
+        dest_ip_address: &Ipv4Addr,
+        packet: &v4::RawPacket,
+    ) {
         let mut packet = packet.into_shared_parsable();
         if let Ok(transaction) = self
             .dhcpv4_transactions
@@ -286,7 +300,10 @@ impl AnalyzerState {
                 .await;
         });
         for auditor in self.dhcpv4_auditors.iter() {
-            auditor.write().await.audit(&mut packet);
+            auditor
+                .write()
+                .await
+                .audit(src_ip_address, dest_ip_address, &mut packet);
         }
     }
 
@@ -310,7 +327,13 @@ impl AnalyzerState {
                     match packet_payload {
                         Ok(packet_payload) => {
                             let packet_payload = v4::ReceivedPacket::new(&packet_payload);
-                            self.audit_dhcpv4(packet.header.ts, &packet_payload).await;
+                            self.audit_dhcpv4(
+                                packet.header.ts,
+                                &packet.ipv4_source_address().unwrap(),
+                                &packet.ipv4_destination_address().unwrap(),
+                                &packet_payload,
+                            )
+                            .await;
                         }
                         // For now we ignore unsupported data links or truncated packets.
                         _ => {}
@@ -359,6 +382,8 @@ impl Collector for Analyzer {
 
 #[cfg(test)]
 mod tests {
+
+    use std::net::Ipv4Addr;
 
     use crate::analyzer::{AnalyzerState, AuditProfile};
     use actix_web::{body::to_bytes, web::Bytes};
@@ -581,8 +606,10 @@ mod tests {
         for i in 0..10 {
             let test_packet = TestPacket::new_valid_bootp_packet();
             let test_packet = test_packet
-                .set(OPCODE_POS, &vec![1])
+                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
                 .set(SECS_POS, &vec![0, i]);
+            let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+            let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
             let packet = ReceivedPacket::new(&test_packet.get());
             analyzer
                 .audit_dhcpv4(
@@ -590,6 +617,8 @@ mod tests {
                         tv_sec: 0,
                         tv_usec: 0,
                     },
+                    &source_ip_address,
+                    &destination_ip_address,
                     &packet,
                 )
                 .await;
@@ -669,6 +698,8 @@ mod tests {
             let test_packet = test_packet
                 .set(OPCODE_POS, &vec![1])
                 .set(SECS_POS, &vec![0, i]);
+            let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+            let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
             let packet = ReceivedPacket::new(&test_packet.get());
             analyzer
                 .state
@@ -679,6 +710,8 @@ mod tests {
                         tv_sec: 0,
                         tv_usec: 0,
                     },
+                    &source_ip_address,
+                    &destination_ip_address,
                     &packet,
                 )
                 .await;

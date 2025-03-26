@@ -1,5 +1,24 @@
 //! `metric` module contains common declarations related to metrics.
 
+/// Total number of broadcast messages.
+pub const METRIC_BOOTP_CONVERSATION_BROADCAST_COUNT: &str = "bootp_conversation_broadcast_count";
+
+/// Total number of relayed messages.
+pub const METRIC_BOOTP_CONVERSATION_RELAYED_COUNT: &str = "bootp_conversation_relayed_count";
+
+/// Total number of unicast not-relayed messages.
+pub const METRIC_BOOTP_CONVERSATION_UNICAST_COUNT: &str = "bootp_conversation_unicast_count";
+
+/// Percentage of broadcast messages.
+pub const METRIC_BOOTP_CONVERSATION_BROADCAST_PERCENT: &str =
+    "bootp_conversation_broadcast_percent";
+
+/// Percentage of relayed messages.
+pub const METRIC_BOOTP_CONVERSATION_RELAYED_PERCENT: &str = "bootp_conversation_relayed_percent";
+
+/// Percentage of unicast not-relayed messages.
+pub const METRIC_BOOTP_CONVERSATION_UNICAST_PERCENT: &str = "bootp_conversation_unicast_percent";
+
 /// Total number of `BootRequest` messages.
 pub const METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT: &str = "bootp_opcode_boot_requests_count";
 

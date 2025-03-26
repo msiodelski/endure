@@ -16,7 +16,9 @@
 //! trying to get a lease for a longest period of time packets.
 
 use super::{
-    common::{AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor},
+    common::{
+        AuditProfile, AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4PacketAuditorWithMetrics,
+    },
     util::{Average, FromMetricScope, MovingRanks, RoundedSMA, RoundedSTA},
 };
 use crate::auditor::metric::*;
@@ -24,10 +26,10 @@ use crate::proto::{bootp::OpCode, dhcp::v4};
 use endure_lib::{
     auditor::{CreateAuditor, SharedAuditConfigContext},
     format_help,
-    metric::{InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
+    metric::{CollectMetrics, InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
 };
-use endure_macros::{AuditProfileCheck, CreateAuditor};
-use std::fmt::Debug;
+use endure_macros::{AuditProfileCheck, CreateAuditor, DHCPv4PacketAuditorWithMetrics};
+use std::{fmt::Debug, net::Ipv4Addr};
 
 #[derive(Debug)]
 struct RetransmissionAuditor<AverageImpl> {
@@ -57,7 +59,12 @@ impl<AverageImpl> DHCPv4PacketAuditor for RetransmissionAuditor<AverageImpl>
 where
     AverageImpl: Average + Debug + Send + Sync,
 {
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+    fn audit(
+        &mut self,
+        _source_ip_address: &Ipv4Addr,
+        _dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    ) {
         let mut packet = packet.write().unwrap();
         let opcode = packet.opcode();
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
@@ -85,26 +92,6 @@ where
             }
             Err(_) => {}
         };
-    }
-
-    fn collect_metrics(&self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_RETRANSMIT_PERCENT,
-            MetricValue::Float64Value(self.retransmits.average()),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_RETRANSMIT_SECS_AVG,
-            MetricValue::Float64Value(self.secs.average()),
-        );
-
-        if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
-            metrics_store.set_metric_value(
-                METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT,
-                MetricValue::StringValue(longest_trying_client.id.clone()),
-            );
-        }
     }
 }
 
@@ -136,6 +123,31 @@ where
     }
 }
 
+impl<AverageImpl> CollectMetrics for RetransmissionAuditor<AverageImpl>
+where
+    AverageImpl: Average + Debug + Send + Sync,
+{
+    fn collect_metrics(&self) {
+        let mut metrics_store = self.metrics_store.write().unwrap();
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_RETRANSMIT_PERCENT,
+            MetricValue::Float64Value(self.retransmits.average()),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_RETRANSMIT_SECS_AVG,
+            MetricValue::Float64Value(self.secs.average()),
+        );
+
+        if let Some(longest_trying_client) = self.longest_trying_client.get_rank(0) {
+            metrics_store.set_metric_value(
+                METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT,
+                MetricValue::StringValue(longest_trying_client.id.clone()),
+            );
+        }
+    }
+}
+
 /// An auditor maintaining the statistics of DHCP retransmissions in all messages.
 ///
 /// # Profiles
@@ -143,7 +155,7 @@ where
 /// This auditor is used for analyzing capture files when the metrics are displayed
 /// at the end of the analysis.
 ///
-#[derive(AuditProfileCheck, CreateAuditor, Debug)]
+#[derive(AuditProfileCheck, CreateAuditor, Debug, DHCPv4PacketAuditorWithMetrics)]
 #[profiles(AuditProfile::PcapFinalFull)]
 pub struct RetransmissionTotalAuditor {
     auditor: RetransmissionAuditor<RoundedSTA<10>>,
@@ -168,18 +180,26 @@ impl RetransmissionTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionTotalAuditor {
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
-        self.auditor.audit(packet)
-    }
-
-    fn collect_metrics(&self) {
-        self.auditor.collect_metrics()
+    fn audit(
+        &mut self,
+        _source_ip_address: &Ipv4Addr,
+        _dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    ) {
+        self.auditor
+            .audit(_source_ip_address, _dest_ip_address, packet)
     }
 }
 
 impl InitMetrics for RetransmissionTotalAuditor {
     fn init_metrics(&self) {
         self.auditor.init_metrics()
+    }
+}
+
+impl CollectMetrics for RetransmissionTotalAuditor {
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics()
     }
 }
 
@@ -190,7 +210,7 @@ impl InitMetrics for RetransmissionTotalAuditor {
 /// This auditor is used for analyzing live packet streams or capture files
 /// when the metrics are periodically displayed during the analysis.
 ///
-#[derive(AuditProfileCheck, CreateAuditor, Debug)]
+#[derive(AuditProfileCheck, CreateAuditor, Debug, DHCPv4PacketAuditorWithMetrics)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct RetransmissionStreamAuditor {
     auditor: RetransmissionAuditor<RoundedSMA<10>>,
@@ -218,12 +238,14 @@ impl RetransmissionStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for RetransmissionStreamAuditor {
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
-        self.auditor.audit(packet)
-    }
-
-    fn collect_metrics(&self) {
-        self.auditor.collect_metrics()
+    fn audit(
+        &mut self,
+        source_ip_address: &Ipv4Addr,
+        dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    ) {
+        self.auditor
+            .audit(source_ip_address, dest_ip_address, packet)
     }
 }
 
@@ -233,11 +255,19 @@ impl InitMetrics for RetransmissionStreamAuditor {
     }
 }
 
+impl CollectMetrics for RetransmissionStreamAuditor {
+    fn collect_metrics(&self) {
+        self.auditor.collect_metrics()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use endure_lib::{
         auditor::{AuditConfigContext, CreateAuditor},
-        metric::MetricsStore,
+        metric::{CollectMetrics, MetricsStore},
     };
 
     use crate::{
@@ -247,7 +277,7 @@ mod tests {
             retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor},
         },
         proto::{
-            bootp::{OPCODE_POS, SECS_POS},
+            bootp::{OpCode, OPCODE_POS, SECS_POS},
             dhcp::v4::ReceivedPacket,
             tests::common::TestPacket,
         },
@@ -274,11 +304,17 @@ mod tests {
             RetransmissionTotalAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
-            .set(OPCODE_POS, &vec![1])
+            .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
             .set(SECS_POS, &vec![0, 0]);
 
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
-        auditor.audit(&mut ReceivedPacket::new(test_packet.get()).into());
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
+        auditor.audit(
+            &source_ip_address,
+            &destination_ip_address,
+            &mut ReceivedPacket::new(test_packet.get()).into(),
+        );
         auditor.collect_metrics();
 
         let metrics_store_ref = metrics_store.clone();
@@ -311,11 +347,17 @@ mod tests {
 
         // Audit 4 packets. The first is not a retransmission. The remaining ones
         // have the increasing secs value.
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         for i in 0..4 {
             let test_packet = TestPacket::new_valid_bootp_packet()
-                .set(OPCODE_POS, &vec![1])
+                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
                 .set(SECS_POS, &vec![0, i]);
-            auditor.audit(&mut ReceivedPacket::new(&test_packet.get()).into());
+            auditor.audit(
+                &source_ip_address,
+                &destination_ip_address,
+                &mut ReceivedPacket::new(&test_packet.get()).into(),
+            );
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.
         auditor.collect_metrics();
@@ -368,10 +410,16 @@ mod tests {
             RetransmissionStreamAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
-            .set(OPCODE_POS, &vec![1])
+            .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
             .set(SECS_POS, &vec![0, 0]);
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
-        auditor.audit(&mut ReceivedPacket::new(test_packet.get()).into());
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
+        auditor.audit(
+            &source_ip_address,
+            &destination_ip_address,
+            &mut ReceivedPacket::new(test_packet.get()).into(),
+        );
         auditor.collect_metrics();
 
         let metrics_store_ref = metrics_store.clone();
@@ -404,11 +452,17 @@ mod tests {
 
         // Audit 4 packets. The first is not a retransmission. The remaining ones
         // have the increasing secs value.
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         for i in 0..4 {
             let test_packet = TestPacket::new_valid_bootp_packet()
-                .set(OPCODE_POS, &vec![1])
+                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
                 .set(SECS_POS, &vec![0, i]);
-            auditor.audit(&mut ReceivedPacket::new(&test_packet.get()).into());
+            auditor.audit(
+                &source_ip_address,
+                &destination_ip_address,
+                &mut ReceivedPacket::new(&test_packet.get()).into(),
+            );
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.
         auditor.collect_metrics();

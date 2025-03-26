@@ -174,6 +174,51 @@ pub fn audit_profile_check(input: TokenStream) -> TokenStream {
     }))
 }
 
+/// A macro implementing the `GenericPacketAuditorWithMetrics` trait.
+///
+/// This trait is implemented by the auditor and it adds the `CollectMetrics`
+/// trait to the auditor.
+///
+#[proc_macro_derive(GenericPacketAuditorWithMetrics)]
+pub fn derive_generic_packet_auditor_with_metrics(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    TokenStream::from(quote!(
+        impl GenericPacketAuditorWithMetrics for #name {}
+    ))
+}
+
+/// A macro implementing the `DHCPv4PacketAuditorWithMetrics` trait.
+///
+/// This trait is implemented by the auditor and it adds the `CollectMetrics`
+/// trait to the auditor.
+///
+#[proc_macro_derive(DHCPv4PacketAuditorWithMetrics)]
+pub fn derive_dhcpv4_packet_auditor_with_metrics(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    TokenStream::from(quote!(
+        impl DHCPv4PacketAuditorWithMetrics for #name {}
+    ))
+}
+
+/// A macro implementing the `DHCPv4TransactionAuditorWithMetrics` trait.
+///
+/// This trait is implemented by the auditor and it adds the `CollectMetrics`
+/// trait to the auditor.
+///
+#[proc_macro_derive(DHCPv4TransactionAuditorWithMetrics)]
+pub fn derive_dhcpv4_transaction_auditor_with_metrics(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = input.ident;
+
+    TokenStream::from(quote!(
+        impl DHCPv4TransactionAuditorWithMetrics for #name {}
+    ))
+}
+
 /// A macro conditionally adding an auditor to the analyzer.
 ///
 /// This macro eliminates a repetitive code in the packet analyzer which

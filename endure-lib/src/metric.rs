@@ -60,10 +60,8 @@ pub trait GetMetricValue<T> {
 
 /// A trait implemented by all auditors collecting metrics in the [`MetricsStore`].
 ///
-/// The [`InitMetrics::init_metrics`] function serves two purposes. It saves
-/// the pointer of the metrics store, so it can be later be used to collect
-/// the updated metrics in the store. It also initializes all auditor's
-/// metrics to their default values with the metadata.
+/// The [`InitMetrics::init_metrics`] function initializes all auditors' metrics
+/// to their default values with the metadata.
 pub trait InitMetrics {
     /// Initializes all metrics collected by the auditor in the [`MetricsStore`].
     ///
@@ -72,13 +70,21 @@ pub trait InitMetrics {
     /// will cause panic in the `audit` function due to an attempt to set the
     /// values of the non-existing metrics with the [`MetricsStore::set_metric_value`].
     ///
-    /// # Parameters
-    ///
-    /// - `metrics_store` - an instance of the [`SharedMetricsStore`] shared
-    ///   between all auditors. Auditors write their metrics to this store when
-    ///   `collect_metrics` function is called.
-    ///
     fn init_metrics(&self);
+}
+
+/// A trait implemented by all auditors collecting metrics in the [`MetricsStore`].
+///
+/// The [`CollectMetrics::collect_metrics`] function is called by the packet
+/// analyzer for each auditor. The auditor writes its metrics into the metrics
+/// store.
+pub trait CollectMetrics {
+    /// Collects metrics from the auditor in the metrics store.
+    ///
+    /// This function is called by the packet analyzer for each auditor.
+    /// The auditor writes its metrics into the metrics store.
+    ///
+    fn collect_metrics(&self);
 }
 
 /// A single metric value having one of the specified types.
