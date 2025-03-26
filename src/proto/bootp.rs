@@ -85,6 +85,17 @@ impl From<u8> for OpCode {
     }
 }
 
+impl Into<u8> for OpCode {
+    /// Converts this type to a raw `u8` value.
+    fn into(self) -> u8 {
+        match self {
+            OpCode::BootRequest => 1,
+            OpCode::BootReply => 2,
+            OpCode::Invalid(x) => x,
+        }
+    }
+}
+
 /// An enum representing hardware types.
 ///
 /// The most widely used hardware type is Ethernet. Thus, this is the only
@@ -475,7 +486,8 @@ mod tests {
 
     #[test]
     fn invalid_opcode() {
-        let test_packet = TestPacket::new_valid_bootp_packet().set(OPCODE_POS, &vec![5]);
+        let test_packet =
+            TestPacket::new_valid_bootp_packet().set(OPCODE_POS, &vec![OpCode::Invalid(5).into()]);
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::Invalid(5)));

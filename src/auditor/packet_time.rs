@@ -2,16 +2,18 @@
 //! timestamp.
 
 use super::{
-    common::{AuditProfile, AuditProfileCheck, GenericPacketAuditor},
+    common::{
+        AuditProfile, AuditProfileCheck, GenericPacketAuditor, GenericPacketAuditorWithMetrics,
+    },
     metric::METRIC_PACKET_TIME_DATE_TIME,
 };
 use chrono::{DateTime, Local};
 use endure_lib::{
     auditor::{CreateAuditor, SharedAuditConfigContext},
     capture::PacketWrapper,
-    metric::{InitMetrics, Metric, MetricValue, SharedMetricsStore},
+    metric::{CollectMetrics, InitMetrics, Metric, MetricValue, SharedMetricsStore},
 };
-use endure_macros::{AuditProfileCheck, CreateAuditor};
+use endure_macros::{AuditProfileCheck, CreateAuditor, GenericPacketAuditorWithMetrics};
 
 /// An auditor tracking timestamp of the last analyzed packet.
 ///
@@ -20,7 +22,7 @@ use endure_macros::{AuditProfileCheck, CreateAuditor};
 /// This auditor is used during the `pcap` file analysis. It is not used for
 /// the analysis of the captures from the network interface.
 ///
-#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug)]
+#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug, GenericPacketAuditorWithMetrics)]
 #[profiles(AuditProfile::PcapStreamFull)]
 pub struct PacketTimeAuditor {
     metrics_store: SharedMetricsStore,
@@ -53,7 +55,20 @@ impl GenericPacketAuditor for PacketTimeAuditor {
         self.packet_time_sec = packet.header.ts.tv_sec;
         self.packet_time_usec = packet.header.ts.tv_usec as u32;
     }
+}
 
+impl InitMetrics for PacketTimeAuditor {
+    fn init_metrics(&self) {
+        let mut metrics_store = self.metrics_store.write().unwrap();
+        metrics_store.set_metric(Metric::new(
+            METRIC_PACKET_TIME_DATE_TIME,
+            "Timestamp of the last analyzed packet.",
+            MetricValue::StringValue(Default::default()),
+        ));
+    }
+}
+
+impl CollectMetrics for PacketTimeAuditor {
     fn collect_metrics(&self) {
         if self.packet_time_sec == 0 && self.packet_time_usec == 0 {
             return;
@@ -70,23 +85,12 @@ impl GenericPacketAuditor for PacketTimeAuditor {
     }
 }
 
-impl InitMetrics for PacketTimeAuditor {
-    fn init_metrics(&self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric(Metric::new(
-            METRIC_PACKET_TIME_DATE_TIME,
-            "Timestamp of the last analyzed packet.",
-            MetricValue::StringValue(Default::default()),
-        ));
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use endure_lib::{
         auditor::{AuditConfigContext, CreateAuditor},
         capture::PacketWrapper,
-        metric::MetricsStore,
+        metric::{CollectMetrics, MetricsStore},
     };
     use pcap::{Linktype, PacketHeader};
 

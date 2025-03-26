@@ -16,6 +16,8 @@
 //! The [`OpCodeStreamAuditor`] tracks the percentages of the message types in
 //! most recent packets.
 
+use std::net::Ipv4Addr;
+
 use crate::{
     auditor::{common::AuditProfile, metric::*},
     proto::{bootp::OpCode, dhcp::v4},
@@ -23,14 +25,18 @@ use crate::{
 use endure_lib::{
     auditor::{CreateAuditor, SharedAuditConfigContext},
     format_help,
-    metric::{InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
+    metric::{CollectMetrics, InitMetrics, Metric, MetricScope, MetricValue, SharedMetricsStore},
 };
-use endure_macros::{AuditProfileCheck, CreateAuditor};
+use endure_macros::{AuditProfileCheck, CreateAuditor, DHCPv4PacketAuditorWithMetrics};
 
 use super::{
-    common::{AuditProfileCheck, DHCPv4PacketAuditor},
-    util::{PercentSMA, TotalCounter},
+    common::{AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4PacketAuditorWithMetrics},
+    util::{MetricIncrease, PercentSMA, TotalCounter},
 };
+
+const METRIC_INDEX_BOOT_REQUEST: usize = 0;
+const METRIC_INDEX_BOOT_REPLY: usize = 1;
+const METRIC_INDEX_INVALID: usize = 2;
 
 /// An auditor maintaining the total statistics of the `BOOTP` message
 /// types.
@@ -39,7 +45,7 @@ use super::{
 ///
 /// This auditor is used for analyzing capture files when the metrics are displayed
 /// at the end of the analysis.
-#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug)]
+#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug, DHCPv4PacketAuditorWithMetrics)]
 #[profiles(
     AuditProfile::LiveStreamFull,
     AuditProfile::PcapStreamFull,
@@ -70,54 +76,26 @@ impl OpCodeTotalAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+    fn audit(
+        &mut self,
+        _source_ip_address: &Ipv4Addr,
+        _dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    ) {
         match packet.write().unwrap().opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
-                    self.message_count.increase(0);
+                    self.message_count.increase(METRIC_INDEX_BOOT_REQUEST);
                 }
                 OpCode::BootReply => {
-                    self.message_count.increase(1);
+                    self.message_count.increase(METRIC_INDEX_BOOT_REPLY);
                 }
                 OpCode::Invalid(_) => {
-                    self.message_count.increase(2);
+                    self.message_count.increase(METRIC_INDEX_INVALID);
                 }
             },
             Err(_) => {}
         };
-    }
-
-    fn collect_metrics(&self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT,
-            MetricValue::Int64Value(self.message_count.counter(0)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT,
-            MetricValue::Int64Value(self.message_count.counter(1)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_INVALID_COUNT,
-            MetricValue::Int64Value(self.message_count.counter(2)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
-            MetricValue::Float64Value(self.message_count.percentage(0)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
-            MetricValue::Float64Value(self.message_count.percentage(1)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
-            MetricValue::Float64Value(self.message_count.percentage(2)),
-        );
     }
 }
 
@@ -165,13 +143,47 @@ impl InitMetrics for OpCodeTotalAuditor {
     }
 }
 
+impl CollectMetrics for OpCodeTotalAuditor {
+    fn collect_metrics(&self) {
+        let mut metrics_store = self.metrics_store.write().unwrap();
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_COUNT,
+            MetricValue::Int64Value(self.message_count.counter(METRIC_INDEX_BOOT_REQUEST)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_COUNT,
+            MetricValue::Int64Value(self.message_count.counter(METRIC_INDEX_BOOT_REPLY)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_INVALID_COUNT,
+            MetricValue::Int64Value(self.message_count.counter(METRIC_INDEX_INVALID)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
+            MetricValue::Float64Value(self.message_count.percentage(METRIC_INDEX_BOOT_REQUEST)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
+            MetricValue::Float64Value(self.message_count.percentage(METRIC_INDEX_BOOT_REPLY)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
+            MetricValue::Float64Value(self.message_count.percentage(METRIC_INDEX_INVALID)),
+        );
+    }
+}
 /// An auditor maintaining the statistics of the `BOOTP` message types.
 ///
 /// # Profiles
 ///
 /// This auditor is used for analyzing live packet streams or capture files
 /// when the metrics are periodically displayed during the analysis.
-#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug)]
+#[derive(AuditProfileCheck, Clone, CreateAuditor, Debug, DHCPv4PacketAuditorWithMetrics)]
 #[profiles(AuditProfile::LiveStreamFull, AuditProfile::PcapStreamFull)]
 pub struct OpCodeStreamAuditor {
     metric_scope: MetricScope,
@@ -201,39 +213,26 @@ impl OpCodeStreamAuditor {
 }
 
 impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
-    fn audit(&mut self, packet: &mut v4::SharedPartiallyParsedPacket) {
+    fn audit(
+        &mut self,
+        _source_ip_address: &Ipv4Addr,
+        _dest_ip_address: &Ipv4Addr,
+        packet: &mut v4::SharedPartiallyParsedPacket,
+    ) {
         match packet.write().unwrap().opcode() {
             Ok(opcode) => match opcode {
                 OpCode::BootRequest => {
-                    self.opcodes.increase(0usize);
+                    self.opcodes.increase(METRIC_INDEX_BOOT_REQUEST);
                 }
                 OpCode::BootReply => {
-                    self.opcodes.increase(1usize);
+                    self.opcodes.increase(METRIC_INDEX_BOOT_REPLY);
                 }
                 OpCode::Invalid(_) => {
-                    self.opcodes.increase(2usize);
+                    self.opcodes.increase(METRIC_INDEX_INVALID);
                 }
             },
             Err(_) => {}
         };
-    }
-
-    fn collect_metrics(&self) {
-        let mut metrics_store = self.metrics_store.write().unwrap();
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
-            MetricValue::Float64Value(self.opcodes.average(0)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
-            MetricValue::Float64Value(self.opcodes.average(1)),
-        );
-
-        metrics_store.set_metric_value(
-            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
-            MetricValue::Float64Value(self.opcodes.average(2)),
-        );
     }
 }
 
@@ -260,11 +259,33 @@ impl InitMetrics for OpCodeStreamAuditor {
     }
 }
 
+impl CollectMetrics for OpCodeStreamAuditor {
+    fn collect_metrics(&self) {
+        let mut metrics_store = self.metrics_store.write().unwrap();
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REQUESTS_PERCENT,
+            MetricValue::Float64Value(self.opcodes.average(METRIC_INDEX_BOOT_REQUEST)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_BOOT_REPLIES_PERCENT,
+            MetricValue::Float64Value(self.opcodes.average(METRIC_INDEX_BOOT_REPLY)),
+        );
+
+        metrics_store.set_metric_value(
+            METRIC_BOOTP_OPCODE_INVALID_PERCENT,
+            MetricValue::Float64Value(self.opcodes.average(METRIC_INDEX_INVALID)),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use endure_lib::{
         auditor::{AuditConfigContext, CreateAuditor},
-        metric::MetricsStore,
+        metric::{CollectMetrics, MetricsStore},
     };
 
     use crate::{
@@ -273,7 +294,11 @@ mod tests {
             metric::*,
             opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor},
         },
-        proto::{bootp::OPCODE_POS, dhcp::v4::ReceivedPacket, tests::common::TestPacket},
+        proto::{
+            bootp::{OpCode, OPCODE_POS},
+            dhcp::v4::ReceivedPacket,
+            tests::common::TestPacket,
+        },
     };
 
     #[test]
@@ -295,11 +320,13 @@ mod tests {
         let config_context = AuditConfigContext::new().to_shared();
         let mut auditor = OpCodeTotalAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
-        let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootRequest.into()]);
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         // Audit 5 request packets.
         for _ in 0..5 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
         let metrics_store_ref = metrics_store.clone();
@@ -354,10 +381,12 @@ mod tests {
 
         // Audit 3 reply packets. Now we have 8 packets audited (5 are requests and
         // 3 are replies).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(2).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
 
@@ -411,10 +440,10 @@ mod tests {
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (5 requests, 3 replies and 2 invalid).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(3).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
 
@@ -485,12 +514,14 @@ mod tests {
         let metrics_store = MetricsStore::new().to_shared();
         let config_context = AuditConfigContext::new().to_shared();
         let mut auditor = OpCodeStreamAuditor::create_auditor(&metrics_store, &config_context);
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         let test_packet = TestPacket::new_valid_bootp_packet();
-        let test_packet = test_packet.set(OPCODE_POS, &vec![1]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootRequest.into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.
         for _ in 0..5 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
         let metrics_store_ref = metrics_store.clone();
@@ -521,10 +552,12 @@ mod tests {
 
         // Audit 3 reply packets. Now we have 8 packets audited (62.5% are requests and 37.5%
         // are replies).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![2]);
+        let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
+        let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootReply.into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
 
@@ -554,10 +587,10 @@ mod tests {
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (50% of requests, 30% of replies and 20% invalid).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![3]);
+        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(3).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
-            auditor.audit(packet);
+            auditor.audit(&source_ip_address, &destination_ip_address, packet);
         }
         auditor.collect_metrics();
 

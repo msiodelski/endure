@@ -7,6 +7,7 @@ use chrono::Local;
 use futures::StreamExt;
 use pcap::{Capture, Linktype, Offline, Packet, PacketCodec, PacketHeader, PacketStream, Savefile};
 use std::marker::PhantomData;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::HashMap, path::Path};
@@ -19,8 +20,20 @@ use tokio::sync::{
 /// A default length of the Ethernet frame, IP and UDP headers together.
 pub const ETHERNET_IP_UDP_HEADER_LENGTH: usize = 42;
 
+/// An offset of the source IP address in the Ethernet frame.
+pub const ETHERNET_SOURCE_IP_ADDRESS_POS: usize = 26;
+
+/// An offset of the destination IP address in the Ethernet frame.
+pub const ETHERNET_DESTINATION_IP_ADDRESS_POS: usize = 30;
+
 /// A default length of the local loopback frame, IP and UDP headers together.
 pub const LOOPBACK_IP_UDP_HEADER_LENGTH: usize = 32;
+
+/// An offset of the source IP address in the BSD loopback encapsulation.
+pub const LOOPBACK_SOURCE_IP_ADDRESS_POS: usize = 26;
+
+/// An offset of the destination IP address in the BSD loopback encapsulation.
+pub const LOOPBACK_DESTINATION_IP_ADDRESS_POS: usize = 30;
 
 /// Represents errors returned by the [`PacketWrapper::payload`].
 #[derive(Debug, Error, PartialEq)]
@@ -85,6 +98,65 @@ impl PacketWrapper {
                     });
                 }
                 Ok(&self.data[LOOPBACK_IP_UDP_HEADER_LENGTH..])
+            }
+            data_link => Err(PacketDataError::UnsupportedLinkType { data_link }),
+        }
+    }
+
+    /// Attempts to return an IPv4 address from the packet's TCP header.
+    fn ipv4_address(
+        &self,
+        link_type: Linktype,
+        ip_address_pos: usize,
+    ) -> Result<Ipv4Addr, PacketDataError> {
+        if self.data.len() <= ip_address_pos {
+            return Err(PacketDataError::TruncatedPacket {
+                data_link: link_type,
+                packet_length: self.data.len(),
+                payload_offset: ip_address_pos,
+            });
+        }
+        Ok(Ipv4Addr::new(
+            self.data[ip_address_pos],
+            self.data[ip_address_pos + 1],
+            self.data[ip_address_pos + 2],
+            self.data[ip_address_pos + 3],
+        ))
+    }
+
+    /// Attempts to return an IPv4 source address from the packet's TCP header.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PacketDataError::UnsupportedLinkType`] if the data link type is not supported.
+    /// Currently, only Ethernet and BSD loopback are supported. It returns [`PacketDataError::TruncatedPacket`]
+    /// if the packet is truncated.
+    pub fn ipv4_source_address(&self) -> Result<Ipv4Addr, PacketDataError> {
+        match self.data_link {
+            Linktype::ETHERNET => {
+                self.ipv4_address(Linktype::ETHERNET, ETHERNET_SOURCE_IP_ADDRESS_POS)
+            }
+            Linktype::NULL | Linktype::LOOP => {
+                self.ipv4_address(Linktype::NULL, LOOPBACK_SOURCE_IP_ADDRESS_POS)
+            }
+            data_link => Err(PacketDataError::UnsupportedLinkType { data_link }),
+        }
+    }
+
+    /// Attempts to return an IPv4 destination address from the packet's TCP header.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PacketDataError::UnsupportedLinkType`] if the data link type is not supported.
+    /// Currently, only Ethernet and BSD loopback are supported. It returns [`PacketDataError::TruncatedPacket`]
+    /// if the packet is truncated.
+    pub fn ipv4_destination_address(&self) -> Result<Ipv4Addr, PacketDataError> {
+        match self.data_link {
+            Linktype::ETHERNET => {
+                self.ipv4_address(Linktype::ETHERNET, ETHERNET_DESTINATION_IP_ADDRESS_POS)
+            }
+            Linktype::NULL | Linktype::LOOP => {
+                self.ipv4_address(Linktype::NULL, LOOPBACK_DESTINATION_IP_ADDRESS_POS)
             }
             data_link => Err(PacketDataError::UnsupportedLinkType { data_link }),
         }
@@ -721,10 +793,15 @@ mod tests {
     use super::{PacketWrapper, PacketWrapperCodec, Reader};
     use crate::capture::{
         Filter, Listener, ListenerAddError, ListenerPool, PacketDataError, Proto, ReaderError,
+        ETHERNET_DESTINATION_IP_ADDRESS_POS, ETHERNET_SOURCE_IP_ADDRESS_POS,
+        LOOPBACK_DESTINATION_IP_ADDRESS_POS, LOOPBACK_SOURCE_IP_ADDRESS_POS,
     };
     use pcap::{Device, Linktype, Packet, PacketCodec, PacketHeader};
     use predicates::prelude::*;
-    use std::{path::PathBuf, sync::Arc};
+    #[cfg(test)]
+    use pretty_assertions::assert_eq;
+    use rstest::{fixture, rstest};
+    use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
     use tokio::sync::Mutex;
 
     #[test]
@@ -909,6 +986,102 @@ mod tests {
         assert!(matches!(
             payload.unwrap_err(),
             PacketDataError::TruncatedPacket { .. }
+        ));
+    }
+
+    #[fixture]
+    fn packet_wrapper(
+        #[default(Linktype::ETHERNET)] data_link: Linktype,
+        #[default(100)] data_length: usize,
+    ) -> PacketWrapper {
+        PacketWrapper {
+            filter: None,
+            header: PacketHeader {
+                ts: libc::timeval {
+                    tv_sec: 0,
+                    tv_usec: 0,
+                },
+                caplen: 0,
+                len: 0,
+            },
+            data: vec![0; data_length],
+            data_link: data_link,
+        }
+    }
+
+    #[rstest]
+    #[case(Linktype::ETHERNET, ETHERNET_SOURCE_IP_ADDRESS_POS)]
+    #[case(Linktype::NULL, LOOPBACK_SOURCE_IP_ADDRESS_POS)]
+    #[case(Linktype::LOOP, LOOPBACK_SOURCE_IP_ADDRESS_POS)]
+    fn packet_ipv4_source_address(
+        #[case] data_link: Linktype,
+        #[case] ip_address_pos: usize,
+        mut packet_wrapper: PacketWrapper,
+    ) {
+        packet_wrapper.data_link = data_link;
+        packet_wrapper.data[ip_address_pos..ip_address_pos + 4].copy_from_slice(&[127, 1, 2, 1]);
+        let source_address = packet_wrapper.ipv4_source_address();
+        assert!(source_address.is_ok());
+        assert_eq!(Ipv4Addr::new(127, 1, 2, 1), source_address.unwrap());
+    }
+
+    #[rstest]
+    fn packet_ipv4_source_address_unsupported_link_type(
+        #[with(Linktype::ATM_RFC1483)] packet_wrapper: PacketWrapper,
+    ) {
+        let source_address = packet_wrapper.ipv4_source_address();
+        assert!(matches!(
+            source_address,
+            Err(PacketDataError::UnsupportedLinkType { .. })
+        ));
+    }
+
+    #[rstest]
+    fn packet_ipv4_source_address_truncated(
+        #[with(Linktype::ETHERNET, 10)] packet_wrapper: PacketWrapper,
+    ) {
+        let source_address = packet_wrapper.ipv4_source_address();
+        assert!(matches!(
+            source_address,
+            Err(PacketDataError::TruncatedPacket { .. })
+        ));
+    }
+
+    #[rstest]
+    #[case(Linktype::ETHERNET, ETHERNET_DESTINATION_IP_ADDRESS_POS)]
+    #[case(Linktype::NULL, LOOPBACK_DESTINATION_IP_ADDRESS_POS)]
+    #[case(Linktype::LOOP, LOOPBACK_DESTINATION_IP_ADDRESS_POS)]
+    fn packet_ipv4_destination_address(
+        #[case] data_link: Linktype,
+        #[case] ip_address_pos: usize,
+        mut packet_wrapper: PacketWrapper,
+    ) {
+        packet_wrapper.data_link = data_link;
+        packet_wrapper.data[ip_address_pos..ip_address_pos + 4].copy_from_slice(&[127, 1, 2, 1]);
+        let destination_address = packet_wrapper.ipv4_destination_address();
+        assert!(destination_address.is_ok());
+        assert_eq!(Ipv4Addr::new(127, 1, 2, 1), destination_address.unwrap());
+    }
+
+    #[rstest]
+    fn packet_ipv4_destination_address_unsupported_link_type(
+        #[with(Linktype::ATM_RFC1483)] packet_wrapper: PacketWrapper,
+    ) {
+        let destination_address = packet_wrapper.ipv4_destination_address();
+        assert!(matches!(
+            destination_address,
+            Err(PacketDataError::UnsupportedLinkType { .. })
+        ));
+    }
+
+    #[rstest]
+    fn packet_ipv4_destination_address_truncated(
+        #[with(Linktype::ETHERNET, 10)] packet_wrapper: PacketWrapper,
+    ) {
+        let destination_address = packet_wrapper.ipv4_destination_address();
+        assert!(matches!(
+            destination_address,
+            Err(PacketDataError::TruncatedPacket { .. })
         ));
     }
 

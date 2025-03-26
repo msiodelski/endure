@@ -51,6 +51,18 @@ impl<Sample> RingBuffer<Sample> {
     }
 }
 
+/// An interface to the [`TotalCounter`] and [`PercentSMA`] to increase
+/// a selected counter by `1`.
+pub trait MetricIncrease {
+    /// Increases a selected metric by `1`.
+    ///
+    /// # Parameters
+    ///
+    /// - metric_index - an index of a metric to increase.
+    ///
+    fn increase(&mut self, metric_index: usize);
+}
+
 /// An interface to the [`RoundedSMA`] and [`RoundedSTA`].
 pub trait Average {
     /// Adds new sample to the average.
@@ -281,6 +293,17 @@ pub struct TotalCounter<const COUNTERS_NUM: usize> {
     counters: [i64; COUNTERS_NUM],
 }
 
+impl<const COUNTERS_NUM: usize> FromMetricScope for TotalCounter<COUNTERS_NUM> {
+    fn from_metric_scope(metric_scope: &MetricScope) -> Self {
+        match metric_scope {
+            MetricScope::Total => Self::new(),
+            MetricScope::Moving(_) => {
+                panic!("cannot create TotalCounter instance from MetricScope::Moving(_)")
+            }
+        }
+    }
+}
+
 impl<const METRICS_NUM: usize> Default for TotalCounter<METRICS_NUM> {
     fn default() -> Self {
         Self {
@@ -289,21 +312,23 @@ impl<const METRICS_NUM: usize> Default for TotalCounter<METRICS_NUM> {
     }
 }
 
-impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
-    /// Instantiates the counters.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+impl<const METRICS_NUM: usize> MetricIncrease for TotalCounter<METRICS_NUM> {
     /// Increases a selected counter by `1`.
     ///
     /// # Errors
     ///
     /// This function will panic if the `metric_index` is out of bounds.
     ///
-    pub fn increase(&mut self, metric_index: usize) {
+    fn increase(&mut self, metric_index: usize) {
         // Add a sample of `1` to a selected metric.
         self.counters[metric_index] += 1;
+    }
+}
+
+impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
+    /// Instantiates the counters.
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Returns the current value for a selected counter.
@@ -355,14 +380,18 @@ pub struct PercentSMA<const METRICS_NUM: usize> {
     ring_buffer: RingBuffer<(usize, u64)>,
 }
 
-impl<const METRICS_NUM: usize> PercentSMA<METRICS_NUM> {
-    /// Instantiates the [`PercentSMA`].
-    pub fn new(window_size: usize) -> PercentSMA<METRICS_NUM> {
-        Self {
-            ring_buffer: RingBuffer::new(window_size),
+impl<const METRICS_NUM: usize> FromMetricScope for PercentSMA<METRICS_NUM> {
+    fn from_metric_scope(metric_scope: &MetricScope) -> Self {
+        match metric_scope {
+            MetricScope::Total => {
+                panic!("cannot create PercentSMA instance from MetricScope::Total")
+            }
+            MetricScope::Moving(window_size) => Self::new(window_size.to_owned() as usize),
         }
     }
+}
 
+impl<const METRICS_NUM: usize> MetricIncrease for PercentSMA<METRICS_NUM> {
     /// Increases a selected metric by `1`.
     ///
     /// # Parameters
@@ -377,8 +406,17 @@ impl<const METRICS_NUM: usize> PercentSMA<METRICS_NUM> {
     /// Internally, the function also adds the `0` sample to the remaining metrics.
     /// This effectively reduces the quota of the remaining metrics and increases
     /// the quota of the selected metric.
-    pub fn increase(&mut self, metric_index: usize) {
+    fn increase(&mut self, metric_index: usize) {
         self.ring_buffer.push_front((metric_index, 1000));
+    }
+}
+
+impl<const METRICS_NUM: usize> PercentSMA<METRICS_NUM> {
+    /// Instantiates the [`PercentSMA`].
+    pub fn new(window_size: usize) -> PercentSMA<METRICS_NUM> {
+        Self {
+            ring_buffer: RingBuffer::new(window_size),
+        }
     }
 
     /// Return the moving average of the selected metric.
@@ -535,7 +573,7 @@ impl<const PRECISION: usize> Average for RoundedSTA<PRECISION> {
 
 #[cfg(test)]
 mod tests {
-    use crate::auditor::util::{Average, RoundedSMA, RoundedSTA};
+    use crate::auditor::util::{Average, MetricIncrease, RoundedSMA, RoundedSTA};
 
     use super::{MovingRanks, TotalCounter};
 
