@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Implemented `conversation` auditors reporting the number of broadcast
+  unicast and relayed DHCPv4 messages sent to the server.
+  (Github #68, #70)
+
 * Added a command line switch `--sampling-window-size` specifying
   the number of the most recent packets used for computing metrics.
   The lower the parameter the more dynamic are the metrics
@@ -25,7 +29,7 @@
 
 ## Release v0.3.0 (April 4th, 2024)
 
-* Implemented Dedicated `opcode` and `retransmission` auditors
+* Implemented dedicated `opcode` and `retransmission` auditors
   for processing `pcap` files. They collect and display the
   metrics from all packets in the `pcap`. Different auditors
   are used in case of the live stream analysis and `pcap` files
