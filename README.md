@@ -86,12 +86,18 @@ Endure is a new project with limited capabilities. However, it can already colle
 
 | Metric | Description |
 |--------|-------------|
-|`bootp_opcode_boot_requests_count`|A total number of `BootRequest` messages|
-|`bootp_opcode_boot_replies_count`|A total number of `BootRequest` messages|
-|`bootp_opcode_invalid_count`|A total number of invalid messages (having invalid `OpCode`)|
-|`bootp_opcode_boot_requests_percent`|A percentage of `BootRequest` messages|
-|`bootp_opcode_boot_replies_percent`|A percentage of the `BootReply` messages|
-|`bootp_opcode_invalid_percent`|A percentage of neither request nor reply messages|
+|`bootp_conversation_broadcast_count`|Total number of broadcast messages|
+|`bootp_conversation_relayed_count`|Total number of relayed messages|
+|`bootp_conversation_unicast_count`|Total number of unicast not-relayed messages|
+|`bootp_conversation_broadcast_percent`|Percentage of broadcast messages|
+|`bootp_conversation_relayed_percent`|Percentage of relayed messages|
+|`bootp_conversation_unicast_percent`|Percentage of unicast not-relayed messages|
+|`bootp_opcode_boot_requests_count`|Total number of `BootRequest` messages|
+|`bootp_opcode_boot_replies_count`|Total number of `BootRequest` messages|
+|`bootp_opcode_invalid_count`|Total number of invalid messages (having invalid `OpCode`)|
+|`bootp_opcode_boot_requests_percent`|Percentage of `BootRequest` messages|
+|`bootp_opcode_boot_replies_percent`|Percentage of the `BootReply` messages|
+|`bootp_opcode_invalid_percent`|Percentage of neither request nor reply messages|
 |`bootp_retransmit_percent`|Percentage of retransmissions|
 |`bootp_retransmit_secs_avg`|Average number of seconds the DHCP clients have been retrying to acquire a lease|
 |`bootp_retransmit_longest_trying_client`|MAC address of a client who has been trying to get the lease the longest|
