@@ -52,8 +52,9 @@ impl<Sample> RingBuffer<Sample> {
 }
 
 /// An interface to the [`TotalCounter`] and [`PercentSMA`] to increase
-/// a selected counter by `1`.
-pub trait MetricIncrease {
+/// a selected counter by `1` and calculate the percentage of the selected
+/// metrics compared to total.
+pub trait Percentage {
     /// Increases a selected metric by `1`.
     ///
     /// # Parameters
@@ -61,6 +62,12 @@ pub trait MetricIncrease {
     /// - metric_index - an index of a metric to increase.
     ///
     fn increase(&mut self, metric_index: usize);
+
+    /// Returns the percentage of the selected metrics value among all values.
+    ///
+    /// # Parameters
+    ///
+    fn percentage(&self, metric_index: usize) -> f64;
 }
 
 /// An interface to the [`RoundedSMA`] and [`RoundedSTA`].
@@ -312,7 +319,7 @@ impl<const METRICS_NUM: usize> Default for TotalCounter<METRICS_NUM> {
     }
 }
 
-impl<const METRICS_NUM: usize> MetricIncrease for TotalCounter<METRICS_NUM> {
+impl<const METRICS_NUM: usize> Percentage for TotalCounter<METRICS_NUM> {
     /// Increases a selected counter by `1`.
     ///
     /// # Errors
@@ -322,6 +329,23 @@ impl<const METRICS_NUM: usize> MetricIncrease for TotalCounter<METRICS_NUM> {
     fn increase(&mut self, metric_index: usize) {
         // Add a sample of `1` to a selected metric.
         self.counters[metric_index] += 1;
+    }
+
+    /// Returns the percentage of the selected metrics value among all values.
+    ///
+    /// # Errors
+    ///
+    /// This function will panic if the `metric_index` is out of bounds.
+    ///
+    fn percentage(&self, metric_index: usize) -> f64 {
+        let mut sum: i64 = 0;
+        for i in 0..METRICS_NUM {
+            sum += self.counters[i];
+        }
+        match sum {
+            0 => 0.0,
+            sum => (1000 * self.counters[metric_index] / sum) as f64 / 10f64,
+        }
     }
 }
 
@@ -339,23 +363,6 @@ impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
     ///
     pub fn counter(&self, metric_index: usize) -> i64 {
         self.counters[metric_index]
-    }
-
-    /// Returns the percentage of the selected metrics value among all values.
-    ///
-    /// # Errors
-    ///
-    /// This function will panic if the `metric_index` is out of bounds.
-    ///
-    pub fn percentage(&self, metric_index: usize) -> f64 {
-        let mut sum: i64 = 0;
-        for i in 0..METRICS_NUM {
-            sum += self.counters[i];
-        }
-        match sum {
-            0 => 0.0,
-            sum => (1000 * self.counters[metric_index] / sum) as f64 / 10f64,
-        }
     }
 }
 
@@ -391,7 +398,7 @@ impl<const METRICS_NUM: usize> FromMetricScope for PercentSMA<METRICS_NUM> {
     }
 }
 
-impl<const METRICS_NUM: usize> MetricIncrease for PercentSMA<METRICS_NUM> {
+impl<const METRICS_NUM: usize> Percentage for PercentSMA<METRICS_NUM> {
     /// Increases a selected metric by `1`.
     ///
     /// # Parameters
@@ -408,6 +415,14 @@ impl<const METRICS_NUM: usize> MetricIncrease for PercentSMA<METRICS_NUM> {
     /// the quota of the selected metric.
     fn increase(&mut self, metric_index: usize) {
         self.ring_buffer.push_front((metric_index, 1000));
+    }
+
+    /// Returns the percentage of the selected metrics value among all values.
+    ///
+    /// # Parameters
+    ///
+    fn percentage(&self, metric_index: usize) -> f64 {
+        self.average(metric_index)
     }
 }
 
@@ -573,7 +588,7 @@ impl<const PRECISION: usize> Average for RoundedSTA<PRECISION> {
 
 #[cfg(test)]
 mod tests {
-    use crate::auditor::util::{Average, MetricIncrease, RoundedSMA, RoundedSTA};
+    use crate::auditor::util::{Average, Percentage, RoundedSMA, RoundedSTA};
 
     use super::{MovingRanks, TotalCounter};
 

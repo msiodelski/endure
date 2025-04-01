@@ -58,7 +58,7 @@ where
         // it several times.
         let transaction = transaction.to_owned();
         let kind = transaction.kind();
-        if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true))
+        if kind.eq(&DHCPv4TransactionKind::SuccessfulFourWayExchange)
             || kind.eq(&DHCPv4TransactionKind::Discovery(true))
         {
             // DO exchange.
@@ -68,7 +68,7 @@ where
                 self.do_roundtrip
                     .add_sample((duration.as_micros() as u64) / 100);
             }
-            if kind.eq(&DHCPv4TransactionKind::FourWayExchange(true)) {
+            if kind.eq(&DHCPv4TransactionKind::SuccessfulFourWayExchange) {
                 // DORA exchange.
                 let ack = transaction.ack.unwrap();
                 if let Ok(duration) = ack.timestamp().duration_since(discover.timestamp()) {

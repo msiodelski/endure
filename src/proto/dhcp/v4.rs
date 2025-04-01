@@ -68,6 +68,8 @@ pub const MESSAGE_TYPE_TLS: u8 = 18;
 pub const OPTION_CODE_PAD: u8 = 0;
 /// DHCP Message Type option code.
 pub const OPTION_CODE_DHCP_MESSAGE_TYPE: u8 = 53;
+/// Server Identifier option code.
+pub const OPTION_CODE_SERVER_IDENTIFIER: u8 = 54;
 /// Parameter Request List option code.
 pub const OPTION_CODE_PARAMETER_REQUEST_LIST: u8 = 55;
 /// Client Identifier option code.
@@ -628,6 +630,26 @@ impl ReceivedPacket<PartiallyParsedState> {
         }
     }
 
+    /// Returns parsed option 54 (Server Identifier).
+    ///
+    /// # Errors
+    ///
+    /// It returns [`OptionParseError::Truncated`] if the option is shorter
+    /// than four bytes.
+    pub fn option_54_server_identifier(&mut self) -> Result<Option<Ipv4Addr>, OptionParseError> {
+        match self.option_or_parse_error(OPTION_CODE_SERVER_IDENTIFIER)? {
+            Some(o) => match o.data.len().cmp(&4) {
+                Ordering::Less => Err(OptionParseError::Truncated {
+                    option_code: OPTION_CODE_SERVER_IDENTIFIER,
+                    data_length: o.data.len(),
+                }),
+                _ => Ok(Some(Ipv4Addr::new(
+                    o.data[0], o.data[1], o.data[2], o.data[3],
+                ))),
+            },
+            _ => Ok(None),
+        }
+    }
     /// Returns parsed option 61 (Client Identifier).
     ///
     /// # Errors
@@ -671,7 +693,7 @@ mod tests {
             MESSAGE_TYPE_LEASEUNASSIGNED, MESSAGE_TYPE_LEASEUNKNOWN, MESSAGE_TYPE_NAK,
             MESSAGE_TYPE_OFFER, MESSAGE_TYPE_RELEASE, MESSAGE_TYPE_REQUEST, MESSAGE_TYPE_TLS,
             OPTION_CODE_CLIENT_IDENTIFIER, OPTION_CODE_DHCP_MESSAGE_TYPE, OPTION_CODE_END,
-            OPTION_CODE_PARAMETER_REQUEST_LIST,
+            OPTION_CODE_PARAMETER_REQUEST_LIST, OPTION_CODE_SERVER_IDENTIFIER,
         },
         tests::common::TestPacket,
     };
@@ -905,6 +927,34 @@ mod tests {
         assert_eq!(
             result.unwrap_err().to_string(),
             "error parsing truncated option: 53, data length: 0"
+        );
+    }
+
+    #[test]
+    fn read_option_54() {
+        let test_packet =
+            TestPacket::new_dhcp_packet_with_server_identifier(Ipv4Addr::new(192, 168, 1, 1));
+        let mut packet = ReceivedPacket::new(test_packet.get()).into_parsable();
+        assert_eq!(
+            packet.option_54_server_identifier().ok().flatten(),
+            Some(Ipv4Addr::new(192, 168, 1, 1))
+        );
+    }
+
+    #[test]
+    fn read_option_54_truncated() {
+        let test_packet = TestPacket::new_base_dhcp_packet().append(&vec![
+            OPTION_CODE_SERVER_IDENTIFIER,
+            2,
+            192,
+            168,
+        ]);
+        let mut packet = ReceivedPacket::new(test_packet.get()).into_parsable();
+        let result = packet.option_54_server_identifier();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "error parsing truncated option: 54, data length: 2"
         );
     }
 

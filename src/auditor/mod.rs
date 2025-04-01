@@ -7,4 +7,5 @@ pub mod opcode;
 pub mod packet_time;
 pub mod retransmission;
 pub mod roundtrip;
+pub mod spectrum;
 pub mod util;

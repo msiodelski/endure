@@ -13,10 +13,10 @@ use endure_lib::{
 };
 use endure_macros::cond_add_auditor;
 
-use crate::auditor::common::{
+use crate::auditor::{common::{
     AuditProfileCheck, DHCPv4PacketAuditorWithMetrics, DHCPv4TransactionAuditorWithMetrics,
     GenericPacketAuditorWithMetrics,
-};
+}, spectrum::{DHCPv4SpectrumStreamAuditor, DHCPv4SpectrumTotalAuditor}};
 use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
 use crate::auditor::retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor};
@@ -251,6 +251,8 @@ impl AnalyzerState {
         let auditors = &mut self.dhcpv4_transactional_auditors;
         cond_add_auditor!(DORARoundtripTotalAuditor);
         cond_add_auditor!(DORARoundtripStreamAuditor);
+        cond_add_auditor!(DHCPv4SpectrumTotalAuditor);
+        cond_add_auditor!(DHCPv4SpectrumStreamAuditor);
     }
 
     /// Runs generic auditors for the received packet.
