@@ -50,6 +50,46 @@ pub const METRIC_BOOTP_RETRANSMIT_SECS_AVG: &str = "bootp_retransmit_secs_avg";
 pub const METRIC_BOOTP_RETRANSMIT_LONGEST_TRYING_CLIENT: &str =
     "bootp_retransmit_longest_trying_client";
 
+/// Total number of attempted DORA exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_DORA_COUNT: &str =
+    "dhcpv4_spectrum_attempted_dora_count";
+
+/// Total number of attempted Inform exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_INFORM_COUNT: &str =
+    "dhcpv4_spectrum_attempted_inform_count";
+
+/// Total number of attempted Renew exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_RENEW_COUNT: &str =
+    "dhcpv4_spectrum_attempted_renew_count";
+
+/// Total number of attempted Rebind exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_REBIND_COUNT: &str =
+    "dhcpv4_spectrum_attempted_rebind_count";
+
+/// Total number of attempted Release messages in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_RELEASE_COUNT: &str =
+    "dhcpv4_spectrum_attempted_release_count";
+
+/// Percentage of attempted DORA exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_DORA_PERCENT: &str =
+    "dhcpv4_spectrum_attempted_dora_percent";
+
+/// Percentage of attempted Inform exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_INFORM_PERCENT: &str =
+    "dhcpv4_spectrum_attempted_inform_percent";
+
+/// Percentage of attempted Renew exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_RENEW_PERCENT: &str =
+    "dhcpv4_spectrum_attempted_renew_percent";
+
+/// Percentage of attempted Rebind exchanges in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_REBIND_PERCENT: &str =
+    "dhcpv4_spectrum_attempted_rebind_percent";
+
+/// Percentage of attempted Release messages in all exchanges.
+pub const METRIC_DHCPV4_SPECTRUM_ATTEMPTED_RELEASE_PERCENT: &str =
+    "dhcpv4_spectrum_attempted_release_percent";
+
 /// Average time in milliseconds to complete a successful 4-way (DORA) exchange.
 pub const METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG: &str =
     "dhcpv4_roundtrip_dora_milliseconds_avg";

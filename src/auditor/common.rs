@@ -68,16 +68,25 @@ pub enum DHCPv4TransactionKind {
     Discovery(bool),
     /// A 4-way exchange.
     ///
-    /// A boolean parameter indicates if the exchange has been completed.
-    FourWayExchange(bool),
+    /// This kind is set when a DHCPREQUEST was sent following the DHCPDISCOVER,
+    /// but neither DHCPACK or DHCPNAK.
+    FourWayExchange,
+    /// A 4-way exchange in which the server responded with DHCPACK.
+    SuccessfulFourWayExchange,
     /// A 4-way exchange in which the server responded with DHCPNAK.
     FailedFourWayExchange,
-    /// A renewal where client sends DHCPREQUEST without earlier sending DHCPDISCOVER.
+    /// A renewal when client sends DHCPREQUEST without earlier sending DHCPDISCOVER.
     Renewal,
-    /// A renewal where the server responded with DHCPNAK.
+    /// A renewal when the server responded with DHCPACK.
+    SuccessfulRenewal,
+    /// A renewal when the server responded with DHCPNAK.
     FailedRenewal,
-    /// An DHCPINFORM/DHCPACK exchange.
+    /// A DHCPINFORM exchange case when the server has not yet responded.
     InfRequest,
+    /// A DHCPINFORM/DHCPACK exchange.
+    SuccessfulInfRequest,
+    /// A DHCPRELEASE message sent by the client.
+    Release,
     /// An undetermined exchange kind.
     Undetermined,
 }
@@ -113,11 +122,13 @@ pub struct DHCPv4Transaction {
     pub nak: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
     /// A DHCPINFORM message sent by the client.
     pub inform: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
+    /// A DHCPRELEASE message sent by the client.
+    pub release: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
 }
 
 impl DHCPv4Transaction {
     /// Instantiates new [`DHCPv4Transaction`].
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             created_at: Instant::now(),
             discover: None,
@@ -126,6 +137,7 @@ impl DHCPv4Transaction {
             ack: None,
             nak: None,
             inform: None,
+            release: None,
         }
     }
 
@@ -164,34 +176,39 @@ impl DHCPv4Transaction {
     /// The transactional auditors decide whether they should take action or
     /// return early based on the transaction kind returned by this function.
     pub fn kind(&self) -> DHCPv4TransactionKind {
-        if self.discover.is_some() {
-            // It may be a 4-way exchange.
-            return match self.request {
-                Some(_) => match self.nak {
-                    // It is a 4-way exchange already.
-                    Some(_) => DHCPv4TransactionKind::FailedFourWayExchange,
-                    None => DHCPv4TransactionKind::FourWayExchange(
-                        self.ack.is_some() && self.request.is_some() && self.offer.is_some(),
-                    ),
-                },
-                // Possibly just a first packet or an offer too.
-                None => DHCPv4TransactionKind::Discovery(self.offer.is_some()),
-            };
-        }
-        if self.request.is_some() {
-            // Not a 4-way exchange because there was no DHCPDISCOVER.
-            // Probably a renewal. Let's check if successful or not.
-            match self.nak {
-                Some(_) => return DHCPv4TransactionKind::FailedRenewal,
-                None => return DHCPv4TransactionKind::Renewal,
+        match (
+            &self.discover,
+            &self.offer,
+            &self.request,
+            &self.ack,
+            &self.nak,
+            &self.inform,
+            &self.release,
+        ) {
+            (Some(_), _, None, None, None, None, None) => {
+                DHCPv4TransactionKind::Discovery(self.offer.is_some())
             }
+            (Some(_), _, Some(_), None, None, None, None) => DHCPv4TransactionKind::FourWayExchange,
+            (Some(_), _, Some(_), Some(_), None, None, None) => {
+                DHCPv4TransactionKind::SuccessfulFourWayExchange
+            }
+            (Some(_), _, Some(_), None, Some(_), None, None) => {
+                DHCPv4TransactionKind::FailedFourWayExchange
+            }
+            (None, None, Some(_), None, None, None, None) => DHCPv4TransactionKind::Renewal,
+            (None, None, Some(_), Some(_), None, None, None) => {
+                DHCPv4TransactionKind::SuccessfulRenewal
+            }
+            (None, None, Some(_), None, Some(_), None, None) => {
+                DHCPv4TransactionKind::FailedRenewal
+            }
+            (None, None, None, None, None, Some(_), None) => DHCPv4TransactionKind::InfRequest,
+            (None, None, None, Some(_), None, Some(_), None) => {
+                DHCPv4TransactionKind::SuccessfulInfRequest
+            }
+            (_, _, _, _, _, _, Some(_)) => DHCPv4TransactionKind::Release,
+            _ => DHCPv4TransactionKind::Undetermined,
         }
-        // Neither a 4-way exchange nor a renewal.
-        if self.inform.is_some() {
-            // Information request.
-            return DHCPv4TransactionKind::InfRequest;
-        }
-        DHCPv4TransactionKind::Undetermined
     }
 
     /// Inserts a packet into the transaction.
@@ -240,6 +257,9 @@ impl DHCPv4Transaction {
             v4::MessageType::Ack => Self::insert_or_err(&mut self.ack, msg_type, packet.clone())?,
             v4::MessageType::Inform => {
                 Self::insert_or_err(&mut self.inform, msg_type, packet.clone())?
+            }
+            v4::MessageType::Release => {
+                Self::insert_or_err(&mut self.release, msg_type, packet.clone())?
             }
             _ => {
                 return Err(DHCPv4TransactionCacheError::UnsupportedMessageType {
@@ -373,7 +393,7 @@ impl DHCPv4TransactionCache {
 /// are not suitable for analyzing the live packet streams. Predefined profiles
 /// differentiate between these cases. The profiles can also select specific
 /// auditors aimed at diagnosing a certain set of issues.
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum AuditProfile {
     /// Enable all auditors, capture traffic from interface and analyze
     /// using moving average window.
@@ -481,7 +501,8 @@ pub trait AuditProfileCheck {
 #[cfg(test)]
 mod tests {
 
-    use std::time::Duration;
+    use assert_matches::assert_matches;
+    use rstest::{fixture, rstest};
 
     use endure_lib::time_wrapper::TimeWrapper;
 
@@ -494,298 +515,272 @@ mod tests {
         },
     };
 
+    use super::DHCPv4TransactionCacheError;
     use std::ops::Sub;
+    use std::time::Duration;
 
-    #[test]
-    fn dhcpv4_transaction_four_way_exchange() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    struct TransactionFixture {
+        inner_transaction: DHCPv4Transaction,
+    }
+
+    impl TransactionFixture {
+        fn new() -> Self {
+            Self {
+                inner_transaction: DHCPv4Transaction::new(),
+            }
+        }
+
+        fn kind(&self) -> DHCPv4TransactionKind {
+            self.inner_transaction.kind()
+        }
+
+        fn insert(&mut self, message_type: MessageType) -> Result<(), DHCPv4TransactionCacheError> {
+            let packet = ReceivedPacket::new(
+                TestPacket::new_dhcp_packet_with_message_type(message_type).get(),
+            )
+            .into_shared_parsable();
+            self.inner_transaction.insert(TimeWrapper::from(packet))
+        }
+    }
+
+    #[fixture]
+    fn transaction() -> TransactionFixture {
+        let transaction = TransactionFixture::new();
+        transaction
+    }
+
+    #[rstest]
+    fn dhcpv4_transaction_four_way_exchange(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPDISCOVER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
+        assert!(transaction.insert(MessageType::Discover).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
 
         // DHCPOFFER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Offer).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
+        assert!(transaction.insert(MessageType::Offer).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
 
         // DHCPREQUEST.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(false),
-            transaction.kind()
-        );
+        assert!(transaction.insert(MessageType::Request).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::FourWayExchange);
 
         // DHCPACK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Ack).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(true),
-            transaction.kind()
+        assert!(transaction.insert(MessageType::Ack).is_ok());
+        assert_matches!(
+            transaction.kind(),
+            DHCPv4TransactionKind::SuccessfulFourWayExchange
         );
     }
 
-    #[test]
-    fn dhcpv4_transaction_four_way_exchange_out_of_order() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    #[rstest]
+    fn dhcpv4_transaction_four_way_exchange_out_of_order(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPDISCOVER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
+        assert!(transaction.insert(MessageType::Discover).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
 
         // DHCPREQUEST.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(false),
-            transaction.kind()
-        );
+        assert!(transaction.insert(MessageType::Request).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::FourWayExchange);
 
         // DHCPACK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Ack).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(false),
-            transaction.kind()
+        assert!(transaction.insert(MessageType::Ack).is_ok());
+        assert_matches!(
+            transaction.kind(),
+            DHCPv4TransactionKind::SuccessfulFourWayExchange
         );
 
         // DHCPOFFER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Offer).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(true),
-            transaction.kind()
+        assert!(transaction.insert(MessageType::Offer).is_ok());
+        assert_matches!(
+            transaction.kind(),
+            DHCPv4TransactionKind::SuccessfulFourWayExchange
         );
     }
 
-    #[test]
-    fn dhcpv4_transaction_failed_four_way_exchange() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    #[rstest]
+    fn dhcpv4_transaction_failed_four_way_exchange(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPDISCOVER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
+        assert!(transaction.insert(MessageType::Discover).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
 
         // DHCPOFFER.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Offer).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
+        assert!(transaction.insert(MessageType::Offer).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
 
         // DHCPREQUEST.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FourWayExchange(false),
-            transaction.kind()
-        );
+        assert!(transaction.insert(MessageType::Request).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::FourWayExchange);
 
         // DHCPNAK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Nak).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(
-            DHCPv4TransactionKind::FailedFourWayExchange,
-            transaction.kind()
+        assert!(transaction.insert(MessageType::Nak).is_ok());
+        assert_matches!(
+            transaction.kind(),
+            DHCPv4TransactionKind::FailedFourWayExchange
         );
     }
 
-    #[test]
-    fn dhcpv4_transaction_renew() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    #[rstest]
+    fn dhcpv4_transaction_renew(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPREQUEST.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Renewal, transaction.kind());
+        assert!(transaction.insert(MessageType::Request).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Renewal);
 
         // DHCPACK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Ack).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Renewal, transaction.kind());
+        assert!(transaction.insert(MessageType::Ack).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::SuccessfulRenewal);
     }
 
-    #[test]
-    fn dhcpv4_transaction_failed_renew() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    #[rstest]
+    fn dhcpv4_transaction_failed_renew(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPREQUEST.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Request).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::Renewal, transaction.kind());
+        assert!(transaction.insert(MessageType::Request).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Renewal);
 
         // DHCPNAK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Nak).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::FailedRenewal, transaction.kind());
+        assert!(transaction.insert(MessageType::Nak).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::FailedRenewal);
     }
 
-    #[test]
-    fn dhcpv4_transaction_inf_request() {
-        let mut transaction = DHCPv4Transaction::new();
-        assert_eq!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
+    #[rstest]
+    fn dhcpv4_transaction_inf_request(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
         // DHCPINFORM.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Inform).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::InfRequest, transaction.kind());
+        assert!(transaction.insert(MessageType::Inform).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::InfRequest);
 
         // DHCPACK.
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Ack).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        assert_eq!(DHCPv4TransactionKind::InfRequest, transaction.kind());
-    }
-
-    #[test]
-    fn dhcpv4_transaction_double_insert() {
-        let mut transaction = DHCPv4Transaction::new();
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Inform).get(),
-        )
-        .into_shared_parsable();
-        let result = transaction.insert(TimeWrapper::from(packet.clone()));
-        assert!(result.is_ok());
-
-        let result = transaction.insert(TimeWrapper::from(packet.clone()));
-        assert!(result.is_err());
-        assert_eq!(
-            result.unwrap_err().to_string(),
-            "packet Inform already cached in the transaction"
+        assert!(transaction.insert(MessageType::Ack).is_ok());
+        assert_matches!(
+            transaction.kind(),
+            DHCPv4TransactionKind::SuccessfulInfRequest
         );
     }
 
-    #[test]
-    fn dhcpv4_transaction_cache_insert() {
-        let mut cache = DHCPv4TransactionCache::new();
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover).get(),
-        )
-        .into_shared_parsable();
-        let result = cache.insert(TimeWrapper::from(packet));
-        assert!(result.is_ok());
-        let transaction = result.unwrap();
-        assert_eq!(DHCPv4TransactionKind::Discovery(false), transaction.kind());
-        assert!(transaction.discover.is_some());
+    #[rstest]
+    fn dhcpv4_transaction_failed_inf_request(mut transaction: TransactionFixture) {
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
 
-        let packet = ReceivedPacket::new(
-            TestPacket::new_dhcp_packet_with_message_type(MessageType::Offer).get(),
-        )
-        .into_shared_parsable();
-        let result = cache.insert(TimeWrapper::from(packet.clone()));
-        assert!(result.is_ok());
-        let transaction = result.unwrap();
-        assert_eq!(DHCPv4TransactionKind::Discovery(true), transaction.kind());
-        assert!(transaction.discover.is_some());
-        assert!(transaction.offer.is_some());
+        // DHCPINFORM.
+        assert!(transaction.insert(MessageType::Inform).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::InfRequest);
 
-        let result = cache.insert(TimeWrapper::from(packet.clone()));
-        assert!(result.is_err());
+        // DHCPNAK is unexpected for this transaction type. The transaction type
+        // becomes undetermined.
+        assert!(transaction.insert(MessageType::Nak).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Undetermined);
     }
 
-    #[tokio::test]
-    async fn dhcpv4_transaction_cache_garbage_collect() {
-        let mut cache = DHCPv4TransactionCache::new();
-        for i in 0..10 {
+    #[rstest]
+    fn dhcpv4_transaction_double_insert(mut transaction: TransactionFixture) {
+        assert!(transaction.insert(MessageType::Inform).is_ok());
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::InfRequest);
+
+        assert_matches!(
+            transaction.insert(MessageType::Inform),
+            Err(DHCPv4TransactionCacheError::PacketExist { message_type })
+            if message_type == MessageType::Inform
+        );
+    }
+
+    struct CacheFixture {
+        inner_cache: DHCPv4TransactionCache,
+    }
+
+    impl CacheFixture {
+        fn new() -> Self {
+            Self {
+                inner_cache: DHCPv4TransactionCache::new(),
+            }
+        }
+
+        fn insert(
+            &mut self,
+            message_type: MessageType,
+        ) -> Result<DHCPv4Transaction, DHCPv4TransactionCacheError> {
             let packet = ReceivedPacket::new(
-                TestPacket::new_dhcp_packet_with_message_type(MessageType::Discover)
-                    .set(XID_POS, &vec![i, i, i, i])
+                TestPacket::new_dhcp_packet_with_message_type(message_type).get(),
+            )
+            .into_shared_parsable();
+            self.inner_cache.insert(TimeWrapper::from(packet))
+        }
+
+        fn insert_with_xid(
+            &mut self,
+            message_type: MessageType,
+            xid: &[u8],
+        ) -> Result<DHCPv4Transaction, DHCPv4TransactionCacheError> {
+            let packet = ReceivedPacket::new(
+                TestPacket::new_dhcp_packet_with_message_type(message_type)
+                    .set(XID_POS, xid)
                     .get(),
             )
             .into_shared_parsable();
-            let result = cache.insert(TimeWrapper::from(packet));
-            assert!(result.is_ok());
+            self.inner_cache.insert(TimeWrapper::from(packet))
         }
-        cache.garbage_collect_expired(100).await;
-        assert_eq!(10, cache.chaddr_xid_index.len());
+    }
 
+    #[fixture]
+    fn cache() -> CacheFixture {
+        let cache = CacheFixture::new();
         cache
+    }
+
+    #[rstest]
+    fn dhcpv4_transaction_cache_insert(mut cache: CacheFixture) {
+        let transaction = cache
+            .insert(MessageType::Discover)
+            .expect("Failed to insert DHCPDISCOVER");
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
+        assert!(transaction.discover.is_some());
+
+        let transaction = cache
+            .insert(MessageType::Offer)
+            .expect("Failed to insert DHCPOFFER");
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
+        assert!(transaction.discover.is_some());
+        assert!(transaction.offer.is_some());
+
+        let result = cache.insert(MessageType::Offer);
+        assert_matches!(result, Err(DHCPv4TransactionCacheError::PacketExist { message_type }) if message_type == MessageType::Offer);
+    }
+
+    #[rstest]
+    #[tokio::test]
+    async fn dhcpv4_transaction_cache_garbage_collect(mut cache: CacheFixture) {
+        // Insert several DHCPDISCOVER packets into the cache with different xid values,
+        // so they are treated as different transactions.
+        for i in 0..10 {
+            _ = cache
+                .insert_with_xid(MessageType::Discover, &vec![i, i, i, i])
+                .expect("Failed to insert DHCPDISCOVER into cache");
+        }
+        // Initially, there are no expired transactions, so they should all
+        // remain the cache.
+        cache.inner_cache.garbage_collect_expired(100).await;
+        assert_eq!(10, cache.inner_cache.chaddr_xid_index.len());
+
+        // Expire half of the transactions.
+        cache
+            .inner_cache
             .chaddr_xid_index
             .iter_mut()
             .filter(|tuple| tuple.0 .1 % 2 != 0)
             .for_each(|tuple| {
                 tuple.1.created_at = tuple.1.created_at.sub(Duration::from_secs(100));
             });
-        cache.garbage_collect_expired(80).await;
+        cache.inner_cache.garbage_collect_expired(80).await;
 
-        assert_eq!(5, cache.chaddr_xid_index.len());
+        // After garbage collection, only the expired transactions should be removed.
+        assert_eq!(5, cache.inner_cache.chaddr_xid_index.len());
     }
 }

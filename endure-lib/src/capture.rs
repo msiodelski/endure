@@ -798,8 +798,6 @@ mod tests {
     };
     use pcap::{Device, Linktype, Packet, PacketCodec, PacketHeader};
     use predicates::prelude::*;
-    #[cfg(test)]
-    use pretty_assertions::assert_eq;
     use rstest::{fixture, rstest};
     use std::{net::Ipv4Addr, path::PathBuf, sync::Arc};
     use tokio::sync::Mutex;

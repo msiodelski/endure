@@ -18,7 +18,7 @@ use std::net::Ipv4Addr;
 
 use super::{
     common::{AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4PacketAuditorWithMetrics},
-    util::{FromMetricScope, MetricIncrease, PercentSMA, TotalCounter},
+    util::{FromMetricScope, PercentSMA, Percentage, TotalCounter},
 };
 use crate::{
     auditor::{common::AuditProfile, metric::*},
@@ -54,7 +54,7 @@ where
 
 impl<MetricTrackingImpl> DHCPv4PacketAuditor for ConversationAuditor<MetricTrackingImpl>
 where
-    MetricTrackingImpl: MetricIncrease + Debug + Send + Sync,
+    MetricTrackingImpl: Percentage + Debug + Send + Sync,
 {
     fn audit(
         &mut self,
@@ -303,8 +303,6 @@ impl CollectMetrics for ConversationStreamAuditor {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(test)]
-    use pretty_assertions::assert_eq;
     use rstest::rstest;
     use std::net::Ipv4Addr;
 

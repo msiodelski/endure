@@ -31,7 +31,7 @@ use endure_macros::{AuditProfileCheck, CreateAuditor, DHCPv4PacketAuditorWithMet
 
 use super::{
     common::{AuditProfileCheck, DHCPv4PacketAuditor, DHCPv4PacketAuditorWithMetrics},
-    util::{MetricIncrease, PercentSMA, TotalCounter},
+    util::{PercentSMA, Percentage, TotalCounter},
 };
 
 const METRIC_INDEX_BOOT_REQUEST: usize = 0;
