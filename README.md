@@ -104,6 +104,16 @@ Endure is a new project with limited capabilities. However, it can already colle
 |`dhcpv4_roundtrip_dora_milliseconds_avg`|Average time in milliseconds to complete a successful 4-way (DORA) exchange|
 |`dhcpv4_roundtrip_dora_do_milliseconds_avg`|Average time in milliseconds to complete a Discover/Offer exchange during the 4-way (DORA) exchange|
 |`dhcpv4_roundtrip_dora_ra_milliseconds_avg`|Average time in milliseconds to complete a Request/Ack exchange during the 4-way (DORA) exchange|
+|`dhcpv4_spectrum_attempted_dora_count`|Total number of attempted DORA exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_inform_count`|Total number of attempted Inform exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_renew_count`|Total number of attempted Renew exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_rebind_count`|Total number of attempted Rebind exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_release_count`|Total number of attempted Release messages in all exchanges|
+|`dhcpv4_spectrum_attempted_dora_percent`|Percentage of attempted DORA exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_inform_percent`|Percentage of attempted Inform exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_renew_percent`|Percentage of attempted Renew exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_rebind_percent`|Percentage of attempted Rebind exchanges in all exchanges|
+|`dhcpv4_spectrum_attempted_release_percent`|Percentage of attempted Release messages in all exchanges|
 
 Many of the metrics listed above (e.g., average or percentages) are computed using
 the last N packets. The default number of packets is 100 but can be changed to an
