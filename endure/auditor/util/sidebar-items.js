@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["MovingRank","MovingRanks","PercentSMA","RingBuffer","RoundedSMA","RoundedSTA","TotalCounter"],"trait":["Average","FromMetricScope","Percentage"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CsvOutputType","DispatchError"],"struct":["Dispatcher","RegistryWrapper","api_metrics_handler","metrics_handler","sse_handler"]};

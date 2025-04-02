@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BufferError"],"struct":["ClampedNumber","ReceiveBuffer"],"type":["Result"]};

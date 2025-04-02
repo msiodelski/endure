@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CHADDR_MAX_LEN","CHADDR_POS","CIADDR_POS","FILE_MAX_LEN","FILE_POS","GIADDR_POS","HLEN_ETHERNET","HLEN_POS","HOPS_POS","HTYPE_POS","OPCODE_POS","SECS_POS","SIADDR_POS","SNAME_MAX_LEN","SNAME_POS","UNUSED_POS","XID_POS","YIADDR_POS"],"enum":["HType","OpCode"],"struct":["HAddr","PartiallyParsedState","RawState","ReceivedPacket"]};
