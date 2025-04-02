@@ -126,6 +126,12 @@ pub struct DHCPv4Transaction {
     pub release: Option<TimeWrapper<SharedPartiallyParsedPacket>>,
 }
 
+impl Default for DHCPv4Transaction {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DHCPv4Transaction {
     /// Instantiates new [`DHCPv4Transaction`].
     pub fn new() -> Self {
@@ -155,8 +161,8 @@ impl DHCPv4Transaction {
         wrapped_packet: TimeWrapper<SharedPartiallyParsedPacket>,
     ) -> Result<Self, DHCPv4TransactionCacheError> {
         let mut transaction = Self::new();
-        transaction.insert(TimeWrapper::from(wrapped_packet))?;
-        return Ok(transaction);
+        transaction.insert(wrapped_packet)?;
+        Ok(transaction)
     }
 
     /// Returns the transaction kind based on the received packets.
@@ -267,7 +273,7 @@ impl DHCPv4Transaction {
                 })
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     /// Conditionally sets a DHCPv4 packet instance of a given type.
@@ -357,13 +363,13 @@ impl DHCPv4TransactionCache {
                         .map_err(|err| DHCPv4TransactionCacheError::BufferRead {
                             details: err.to_string(),
                         })?;
-                return Ok((chaddr, xid));
+                Ok((chaddr, xid))
             })?;
 
         match self.chaddr_xid_index.entry((chaddr, xid)) {
             Occupied(occupied_entry) => {
                 let transaction = occupied_entry.into_mut();
-                transaction.insert(TimeWrapper::from(packet))?;
+                transaction.insert(packet)?;
                 Ok(transaction.clone())
             }
             Vacant(vacant_entry) => {
@@ -545,8 +551,7 @@ mod tests {
 
     #[fixture]
     fn transaction() -> TransactionFixture {
-        let transaction = TransactionFixture::new();
-        transaction
+        TransactionFixture::new()
     }
 
     #[rstest]
@@ -555,11 +560,11 @@ mod tests {
 
         // DHCPDISCOVER.
         assert!(transaction.insert(MessageType::Discover).is_ok());
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if !offer_received);
 
         // DHCPOFFER.
         assert!(transaction.insert(MessageType::Offer).is_ok());
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received);
 
         // DHCPREQUEST.
         assert!(transaction.insert(MessageType::Request).is_ok());
@@ -579,7 +584,7 @@ mod tests {
 
         // DHCPDISCOVER.
         assert!(transaction.insert(MessageType::Discover).is_ok());
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if !offer_received);
 
         // DHCPREQUEST.
         assert!(transaction.insert(MessageType::Request).is_ok());
@@ -606,11 +611,11 @@ mod tests {
 
         // DHCPDISCOVER.
         assert!(transaction.insert(MessageType::Discover).is_ok());
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if !offer_received);
 
         // DHCPOFFER.
         assert!(transaction.insert(MessageType::Offer).is_ok());
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received);
 
         // DHCPREQUEST.
         assert!(transaction.insert(MessageType::Request).is_ok());
@@ -731,8 +736,7 @@ mod tests {
 
     #[fixture]
     fn cache() -> CacheFixture {
-        let cache = CacheFixture::new();
-        cache
+        CacheFixture::new()
     }
 
     #[rstest]
@@ -740,13 +744,13 @@ mod tests {
         let transaction = cache
             .insert(MessageType::Discover)
             .expect("Failed to insert DHCPDISCOVER");
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == false);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if !offer_received);
         assert!(transaction.discover.is_some());
 
         let transaction = cache
             .insert(MessageType::Offer)
             .expect("Failed to insert DHCPOFFER");
-        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received == true);
+        assert_matches!(transaction.kind(), DHCPv4TransactionKind::Discovery(offer_received) if offer_received);
         assert!(transaction.discover.is_some());
         assert!(transaction.offer.is_some());
 
@@ -761,7 +765,7 @@ mod tests {
         // so they are treated as different transactions.
         for i in 0..10 {
             _ = cache
-                .insert_with_xid(MessageType::Discover, &vec![i, i, i, i])
+                .insert_with_xid(MessageType::Discover, &[i, i, i, i])
                 .expect("Failed to insert DHCPDISCOVER into cache");
         }
         // Initially, there are no expired transactions, so they should all

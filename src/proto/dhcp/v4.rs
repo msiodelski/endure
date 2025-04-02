@@ -196,9 +196,9 @@ impl From<u8> for MessageType {
     }
 }
 
-impl Into<u8> for MessageType {
-    fn into(self) -> u8 {
-        match self {
+impl From<MessageType> for u8 {
+    fn from(val: MessageType) -> Self {
+        match val {
             MessageType::Discover => MESSAGE_TYPE_DHCPDISCOVER,
             MessageType::Offer => MESSAGE_TYPE_OFFER,
             MessageType::Request => MESSAGE_TYPE_REQUEST,
@@ -282,7 +282,7 @@ impl Flags {
     ///
     /// - `flags` is a raw flags value.
     pub fn new(flags: u16) -> Flags {
-        Flags { flags: flags }
+        Flags { flags }
     }
 
     /// Checks if the broadcast flag (most significant bit) is set.
@@ -394,15 +394,15 @@ impl ReceivedPacket<RawState> {
     }
 }
 
-impl Into<PartiallyParsedPacket> for ReceivedPacket<RawState> {
-    fn into(self) -> PartiallyParsedPacket {
-        self.into_parsable()
+impl From<ReceivedPacket<RawState>> for PartiallyParsedPacket {
+    fn from(val: ReceivedPacket<RawState>) -> Self {
+        val.into_parsable()
     }
 }
 
-impl Into<SharedPartiallyParsedPacket> for ReceivedPacket<RawState> {
-    fn into(self) -> SharedPartiallyParsedPacket {
-        self.into_shared_parsable()
+impl From<ReceivedPacket<RawState>> for SharedPartiallyParsedPacket {
+    fn from(val: ReceivedPacket<RawState>) -> Self {
+        val.into_shared_parsable()
     }
 }
 
@@ -439,7 +439,7 @@ impl ReceivedPacket<PartiallyParsedState> {
 
     /// Reads and caches flags field.
     pub fn flags(&mut self) -> Result<Flags, BufferError> {
-        self.state.bootp.unused().map(|flags| Flags::new(flags))
+        self.state.bootp.unused().map(Flags::new)
     }
 
     /// Reads and caches `ciaddr`.
@@ -920,7 +920,7 @@ mod tests {
     #[test]
     fn parse_option_53_truncated() {
         let test_packet =
-            TestPacket::new_base_dhcp_packet().append(&vec![OPTION_CODE_DHCP_MESSAGE_TYPE, 0]);
+            TestPacket::new_base_dhcp_packet().append(&[OPTION_CODE_DHCP_MESSAGE_TYPE, 0]);
         let mut packet = ReceivedPacket::new(test_packet.get()).into_parsable();
         let result = packet.option_53_message_type();
         assert!(result.is_err());
@@ -943,7 +943,7 @@ mod tests {
 
     #[test]
     fn read_option_54_truncated() {
-        let test_packet = TestPacket::new_base_dhcp_packet().append(&vec![
+        let test_packet = TestPacket::new_base_dhcp_packet().append(&[
             OPTION_CODE_SERVER_IDENTIFIER,
             2,
             192,
@@ -975,7 +975,7 @@ mod tests {
     #[test]
     fn parse_option_61_truncated() {
         let test_packet =
-            TestPacket::new_base_dhcp_packet().append(&vec![OPTION_CODE_CLIENT_IDENTIFIER, 1, 2]);
+            TestPacket::new_base_dhcp_packet().append(&[OPTION_CODE_CLIENT_IDENTIFIER, 1, 2]);
         let mut packet = ReceivedPacket::new(test_packet.get()).into_parsable();
         let result = packet.option_61_client_identifier();
         assert!(result.is_err());
@@ -987,24 +987,24 @@ mod tests {
 
     #[test]
     fn compare_option_61_equal() {
-        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &vec![1, 2, 3, 4, 5, 6]);
-        let client_id_2 = OptionClientIdentifier::new(HType::Ethernet, &vec![1, 2, 3, 4, 5, 6]);
+        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &[1, 2, 3, 4, 5, 6]);
+        let client_id_2 = OptionClientIdentifier::new(HType::Ethernet, &[1, 2, 3, 4, 5, 6]);
 
         assert_eq!(client_id_1, client_id_2)
     }
 
     #[test]
     fn compare_option_61_non_equal_types() {
-        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &vec![1, 2, 3, 4, 5, 6]);
-        let client_id_2 = OptionClientIdentifier::new(HType::Other(3), &vec![1, 2, 3, 4, 5, 6]);
+        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &[1, 2, 3, 4, 5, 6]);
+        let client_id_2 = OptionClientIdentifier::new(HType::Other(3), &[1, 2, 3, 4, 5, 6]);
 
         assert_ne!(client_id_1, client_id_2)
     }
 
     #[test]
     fn compare_option_61_non_equal_identifiers() {
-        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &vec![1, 2, 3, 4, 5, 6]);
-        let client_id_2 = OptionClientIdentifier::new(HType::Ethernet, &vec![1, 2, 2, 3, 5, 6]);
+        let client_id_1 = OptionClientIdentifier::new(HType::Ethernet, &[1, 2, 3, 4, 5, 6]);
+        let client_id_2 = OptionClientIdentifier::new(HType::Ethernet, &[1, 2, 2, 3, 5, 6]);
 
         assert_ne!(client_id_1, client_id_2)
     }

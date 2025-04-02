@@ -318,7 +318,7 @@ mod tests {
 
         let metrics_store_ref = metrics_store.clone();
 
-        for metric in vec![
+        for metric in [
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
             METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
             METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,
@@ -385,7 +385,7 @@ mod tests {
 
         let metrics_store_ref = metrics_store.clone();
 
-        for metric in vec![
+        for metric in [
             METRIC_DHCPV4_ROUNDTRIP_DORA_MILLISECONDS_AVG,
             METRIC_DHCPV4_ROUNDTRIP_DORA_DO_MILLISECONDS_AVG,
             METRIC_DHCPV4_ROUNDTRIP_DORA_RA_MILLISECONDS_AVG,

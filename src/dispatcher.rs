@@ -175,6 +175,12 @@ pub struct Dispatcher {
     pub audit_config_context: SharedAuditConfigContext,
 }
 
+impl Default for Dispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Dispatcher {
     /// Instantiates the dispatcher.
     ///
@@ -266,7 +272,7 @@ impl Dispatcher {
             .run();
 
             // Run the HTTP server asynchronously.
-            tokio::spawn(async move { server.await });
+            tokio::spawn(server);
             return Ok(());
         }
         Ok(())

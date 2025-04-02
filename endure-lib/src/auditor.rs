@@ -24,14 +24,20 @@ pub struct AuditConfigContext {
     pub global: GlobalAuditConfigContext,
 }
 
-impl AuditConfigContext {
-    /// Instantiates [`AuditConfigContext`].
-    pub fn new() -> Self {
+impl Default for AuditConfigContext {
+    fn default() -> Self {
         Self {
             global: GlobalAuditConfigContext {
                 sampling_window_size: 100,
             },
         }
+    }
+}
+
+impl AuditConfigContext {
+    /// Instantiates [`AuditConfigContext`].
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Converts the [`AuditConfigContext`] to [`SharedAuditConfigContext`].

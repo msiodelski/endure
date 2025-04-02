@@ -70,27 +70,21 @@ where
         if opcode.is_err() || opcode.is_ok() && opcode.unwrap().ne(&OpCode::BootRequest) {
             return;
         }
-        match packet.secs() {
-            Ok(secs) => {
-                if secs > 0 {
-                    // Since we want the percentage rather than the average between 0 and 1,
-                    // let's add 100 (instead of 1), so we get appropriate precision and we
-                    // don't have to multiply the resulting average by 100 later on.
-                    self.retransmits.add_sample(100u64);
-                    // Get the client's hardware address.
-                    match packet.chaddr() {
-                        Ok(haddr) => {
-                            self.longest_trying_client
-                                .add_score(haddr.to_string(), secs);
-                        }
-                        Err(_) => {}
-                    }
-                } else {
-                    self.retransmits.add_sample(0u64);
+        if let Ok(secs) = packet.secs() {
+            if secs > 0 {
+                // Since we want the percentage rather than the average between 0 and 1,
+                // let's add 100 (instead of 1), so we get appropriate precision and we
+                // don't have to multiply the resulting average by 100 later on.
+                self.retransmits.add_sample(100u64);
+                // Get the client's hardware address.
+                if let Ok(haddr) = packet.chaddr() {
+                    self.longest_trying_client
+                        .add_score(haddr.to_string(), secs);
                 }
-                self.secs.add_sample(secs as u64);
+            } else {
+                self.retransmits.add_sample(0u64);
             }
-            Err(_) => {}
+            self.secs.add_sample(secs as u64);
         };
     }
 }
@@ -304,8 +298,8 @@ mod tests {
             RetransmissionTotalAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
-            .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
-            .set(SECS_POS, &vec![0, 0]);
+            .set(OPCODE_POS, &[OpCode::BootRequest.into()])
+            .set(SECS_POS, &[0, 0]);
 
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
@@ -351,12 +345,12 @@ mod tests {
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         for i in 0..4 {
             let test_packet = TestPacket::new_valid_bootp_packet()
-                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
-                .set(SECS_POS, &vec![0, i]);
+                .set(OPCODE_POS, &[OpCode::BootRequest.into()])
+                .set(SECS_POS, &[0, i]);
             auditor.audit(
                 &source_ip_address,
                 &destination_ip_address,
-                &mut ReceivedPacket::new(&test_packet.get()).into(),
+                &mut ReceivedPacket::new(test_packet.get()).into(),
             );
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.
@@ -410,8 +404,8 @@ mod tests {
             RetransmissionStreamAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
         let test_packet = test_packet
-            .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
-            .set(SECS_POS, &vec![0, 0]);
+            .set(OPCODE_POS, &[OpCode::BootRequest.into()])
+            .set(SECS_POS, &[0, 0]);
         // Audit the packet having secs field value of 0. It doesn't count as retransmission.
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
@@ -456,12 +450,12 @@ mod tests {
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         for i in 0..4 {
             let test_packet = TestPacket::new_valid_bootp_packet()
-                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
-                .set(SECS_POS, &vec![0, i]);
+                .set(OPCODE_POS, &[OpCode::BootRequest.into()])
+                .set(SECS_POS, &[0, i]);
             auditor.audit(
                 &source_ip_address,
                 &destination_ip_address,
-                &mut ReceivedPacket::new(&test_packet.get()).into(),
+                &mut ReceivedPacket::new(test_packet.get()).into(),
             );
         }
         // 60% of packets were retransmissions. The average secs field value was 1.2.

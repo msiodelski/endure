@@ -242,15 +242,14 @@ impl MetricsStore {
     pub fn set_metric_value(&mut self, metric_name: &str, value: MetricValue) {
         let metric = self.metrics.get_mut(metric_name);
         metric
-            .expect(
-                format!(
+            .unwrap_or_else(|| {
+                panic!(
                     "Attempting to set value for non-existing metrics {:?}. \
-                    It is a programming error. Please report to \
-                    https://github.com/msiodelski/endure.",
+                            It is a programming error. Please report to \
+                            https://github.com/msiodelski/endure.",
                     value
                 )
-                .as_str(),
-            )
+            })
             .set_value(value);
     }
 
@@ -360,7 +359,7 @@ impl MetricsStore {
                     .as_bytes(),
             )
             .map(|_| ())?;
-        write!(writer, "\n")?;
+        writeln!(writer)?;
         writer.flush()?;
         Ok(())
     }
@@ -377,7 +376,7 @@ impl Collector for MetricsStore {
         &self,
         mut encoder: prometheus_client::encoding::DescriptorEncoder,
     ) -> Result<(), std::fmt::Error> {
-        for metric in self.metrics.values().into_iter() {
+        for metric in self.metrics.values() {
             match metric.value {
                 MetricValue::Int64Value(value) => {
                     let gauge = Gauge::<i64, AtomicI64>::default();

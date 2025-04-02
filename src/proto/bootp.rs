@@ -85,10 +85,10 @@ impl From<u8> for OpCode {
     }
 }
 
-impl Into<u8> for OpCode {
+impl From<OpCode> for u8 {
     /// Converts this type to a raw `u8` value.
-    fn into(self) -> u8 {
-        match self {
+    fn from(val: OpCode) -> Self {
+        match val {
             OpCode::BootRequest => 1,
             OpCode::BootReply => 2,
             OpCode::Invalid(x) => x,
@@ -356,7 +356,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `ciaddr`.
     pub fn ciaddr(&mut self) -> Result<&Ipv4Addr, BufferError> {
         if self.state.parsed_ciaddr.is_some() {
-            return Ok(&self.state.parsed_ciaddr.as_ref().unwrap());
+            return Ok(self.state.parsed_ciaddr.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -367,7 +367,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `yiaddr`.
     pub fn yiaddr(&mut self) -> Result<&Ipv4Addr, BufferError> {
         if self.state.parsed_yiaddr.is_some() {
-            return Ok(&self.state.parsed_yiaddr.as_ref().unwrap());
+            return Ok(self.state.parsed_yiaddr.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -378,7 +378,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `siaddr`.
     pub fn siaddr(&mut self) -> Result<&Ipv4Addr, BufferError> {
         if self.state.parsed_siaddr.is_some() {
-            return Ok(&self.state.parsed_siaddr.as_ref().unwrap());
+            return Ok(self.state.parsed_siaddr.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -389,7 +389,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `giaddr`.
     pub fn giaddr(&mut self) -> Result<&Ipv4Addr, BufferError> {
         if self.state.parsed_giaddr.is_some() {
-            return Ok(&self.state.parsed_giaddr.as_ref().unwrap());
+            return Ok(self.state.parsed_giaddr.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -400,9 +400,9 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `chaddr`.
     pub fn chaddr(&mut self) -> Result<&HAddr, BufferError> {
         if self.state.parsed_chaddr.is_some() {
-            return Ok(&self.state.parsed_chaddr.as_ref().unwrap());
+            return Ok(self.state.parsed_chaddr.as_ref().unwrap());
         }
-        let htype = self.htype()?.clone();
+        let htype = *self.htype()?;
         let hlen = self.hlen()?.get();
         self.state
             .buffer
@@ -413,7 +413,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `sname`.
     pub fn sname(&mut self) -> Result<&String, BufferError> {
         if self.state.parsed_sname.is_some() {
-            return Ok(&self.state.parsed_sname.as_ref().unwrap());
+            return Ok(self.state.parsed_sname.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -424,7 +424,7 @@ impl ReceivedPacket<PartiallyParsedState> {
     /// Reads and caches `file`.
     pub fn file(&mut self) -> Result<&String, BufferError> {
         if self.state.parsed_file.is_some() {
-            return Ok(&self.state.parsed_file.as_ref().unwrap());
+            return Ok(self.state.parsed_file.as_ref().unwrap());
         }
         self.state
             .buffer
@@ -487,7 +487,7 @@ mod tests {
     #[test]
     fn invalid_opcode() {
         let test_packet =
-            TestPacket::new_valid_bootp_packet().set(OPCODE_POS, &vec![OpCode::Invalid(5).into()]);
+            TestPacket::new_valid_bootp_packet().set(OPCODE_POS, &[OpCode::Invalid(5).into()]);
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.opcode(), Ok(&OpCode::Invalid(5)));
@@ -495,7 +495,7 @@ mod tests {
 
     #[test]
     fn other_htype() {
-        let test_packet = TestPacket::new_valid_bootp_packet().set(HTYPE_POS, &vec![244]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(HTYPE_POS, &[244]);
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
         assert_eq!(parsed_packet.htype(), Ok(&HType::Other(244)));
@@ -504,8 +504,8 @@ mod tests {
     #[test]
     fn other_chaddr_type() {
         let test_packet = TestPacket::new_valid_bootp_packet()
-            .set(HTYPE_POS, &vec![2, 4])
-            .set(CHADDR_POS, &vec![1, 2, 3, 4]);
+            .set(HTYPE_POS, &[2, 4])
+            .set(CHADDR_POS, &[1, 2, 3, 4]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -522,10 +522,10 @@ mod tests {
     #[test]
     fn too_high_hlen() {
         let test_packet = TestPacket::new_valid_bootp_packet()
-            .set(HLEN_POS, &vec![20])
+            .set(HLEN_POS, &[20])
             .set(
                 CHADDR_POS,
-                &vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+                &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
             );
 
         let packet = ReceivedPacket::new(test_packet.get());
@@ -545,7 +545,7 @@ mod tests {
 
     #[test]
     fn zero_hlen() {
-        let test_packet = TestPacket::new_valid_bootp_packet().set(HLEN_POS, &vec![0]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(HLEN_POS, &[0]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -561,8 +561,7 @@ mod tests {
 
     #[test]
     fn empty_sname() {
-        let test_packet =
-            TestPacket::new_valid_bootp_packet().set(SNAME_POS, &vec![0; SNAME_MAX_LEN]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(SNAME_POS, &[0; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -574,8 +573,7 @@ mod tests {
 
     #[test]
     fn too_long_sname() {
-        let test_packet =
-            TestPacket::new_valid_bootp_packet().set(SNAME_POS, &vec![65; SNAME_MAX_LEN]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(SNAME_POS, &[65; SNAME_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -587,8 +585,7 @@ mod tests {
 
     #[test]
     fn empty_file() {
-        let test_packet =
-            TestPacket::new_valid_bootp_packet().set(FILE_POS, &vec![0; FILE_MAX_LEN]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(FILE_POS, &[0; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();
@@ -600,8 +597,7 @@ mod tests {
 
     #[test]
     fn too_long_file() {
-        let test_packet =
-            TestPacket::new_valid_bootp_packet().set(FILE_POS, &vec![65; FILE_MAX_LEN]);
+        let test_packet = TestPacket::new_valid_bootp_packet().set(FILE_POS, &[65; FILE_MAX_LEN]);
 
         let packet = ReceivedPacket::new(test_packet.get());
         let mut parsed_packet = packet.into_parsable();

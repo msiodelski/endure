@@ -255,7 +255,7 @@ impl ReceiveBuffer {
     /// If the specified position is out of bounds the [BufferError::ReadOutOfBounds]
     /// is returned.
     pub fn read_u16(&mut self, pos: u32) -> Result<u16> {
-        self.read::<2>(pos).map(|buf| u16::from_be_bytes(buf))
+        self.read::<2>(pos).map(u16::from_be_bytes)
     }
 
     /// Attempts to read a u32 number from the buffer.
@@ -270,7 +270,7 @@ impl ReceiveBuffer {
     /// If the specified position is out of bounds the [BufferError::ReadOutOfBounds]
     /// is returned.
     pub fn read_u32(&mut self, pos: u32) -> Result<u32> {
-        self.read::<4>(pos).map(|buf| u32::from_be_bytes(buf))
+        self.read::<4>(pos).map(u32::from_be_bytes)
     }
 
     /// Attempts to read an IPv4 address from the buffer.
