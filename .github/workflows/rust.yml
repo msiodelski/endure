@@ -50,12 +50,12 @@ jobs:
       - uses: actions/checkout@v3
       - name: Build documentation
         run: cargo doc --no-deps --all-features
-      # - name: Deploy documentation
-        # if: github.ref == 'refs/heads/main'
-        # uses: peaceiris/actions-gh-pages@v3
-        # with:
-        #  github_token: ${{ secrets.GITHUB_TOKEN }}
-        #  publish_dir: ./docs
+      - name: Deploy documentation
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
 
   lints:
     name: Lints & Format
