@@ -1,5 +1,7 @@
 # ChangeLog
 
+## Release v0.5.0 (April 2nd, 2025)
+
 * Extended DHCPv4 dashboard in Grafana with the `spectrum` and
   `conversation` metrics.
   (Github #72, #73)

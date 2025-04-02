@@ -1,7 +1,7 @@
 workspace = { members = ["endure-lib", "endure-macros"] }
 [package]
 name = "endure"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 authors = ["Marcin Siodelski <msiodelski@gmail.com>"]
 description = "DHCP diagnostics utility"
