@@ -563,7 +563,7 @@ mod tests {
         ) -> Result<(), DHCPv4TransactionCacheError> {
             let mut packet = TestPacket::new_dhcp_packet_with_message_type(message_type);
             if let Some(server_id) = server_id {
-                packet = packet.append(&vec![
+                packet = packet.append(&[
                     OPTION_CODE_SERVER_IDENTIFIER,
                     4,
                     server_id.octets()[0],
@@ -586,8 +586,7 @@ mod tests {
 
     #[fixture]
     fn transaction() -> TransactionFixture {
-        let transaction = TransactionFixture::new();
-        transaction
+        TransactionFixture::new()
     }
 
     #[rstest]

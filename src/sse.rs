@@ -3,6 +3,8 @@
 //! This implementation is based on the following
 //! [SSE implementation example](https://github.com/actix/examples/tree/master/server-sent-events`).
 
+use std::fmt;
+
 use actix_web_lab::{
     sse::{self, Sse},
     util::InfallibleStream,
@@ -37,6 +39,23 @@ pub struct Event {
     payload: Option<Box<RawValue>>,
 }
 
+impl fmt::Display for Event {
+    /// Stringifies the event.
+    ///
+    /// The stringified event is ready to be sent over the wire by the
+    /// HTTP server.
+    ///
+    /// # Errors
+    ///
+    /// This function returns no error because it is highly unlikely
+    /// to have a serialization error at this stage. The payload is
+    /// serialized in the [`Event::with_payload`] function. Other fields
+    /// should serialize just fine as we rely on the derived serializers.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", serde_json::to_string(&self).unwrap_or_default())
+    }
+}
+
 impl Event {
     /// Instantiates new event.
     pub fn new(event_type: EventType) -> Event {
@@ -66,25 +85,10 @@ impl Event {
             Ok(payload) => {
                 let mut event = self;
                 event.payload = Some(RawValue::from_string(payload).unwrap());
-                return Ok(event);
+                Ok(event)
             }
-            Err(_) => return Err(Error::SerializeError),
+            Err(_) => Err(Error::SerializeError),
         }
-    }
-
-    /// Stringifies the event.
-    ///
-    /// The stringified event is ready to be sent over the wire by the
-    /// HTTP server.
-    ///
-    /// # Errors
-    ///
-    /// This function returns no error because it is highly unlikely
-    /// to have a serialization error at this stage. The payload is
-    /// serialized in the [`Event::with_payload`] function. Other fields
-    /// should serialize just fine as we rely on the derived serializers.
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(&self).unwrap_or_default()
     }
 }
 
@@ -96,6 +100,12 @@ pub struct EventGateway {
 #[derive(Default)]
 struct EventGatewayState {
     clients: Vec<mpsc::Sender<sse::Event>>,
+}
+
+impl Default for EventGateway {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventGateway {
@@ -129,7 +139,7 @@ impl EventGateway {
     pub async fn send_event(&self, event: Event) {
         let serialized_event = event.to_string();
         let clients = self.state.lock().await.clients.clone();
-        if clients.len() == 0 {
+        if clients.is_empty() {
             return;
         }
         let mut ok_clients = Vec::<mpsc::Sender<sse::Event>>::new();

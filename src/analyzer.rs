@@ -13,10 +13,6 @@ use endure_lib::{
 };
 use endure_macros::cond_add_auditor;
 
-use crate::auditor::{common::{
-    AuditProfileCheck, DHCPv4PacketAuditorWithMetrics, DHCPv4TransactionAuditorWithMetrics,
-    GenericPacketAuditorWithMetrics,
-}, spectrum::{DHCPv4SpectrumStreamAuditor, DHCPv4SpectrumTotalAuditor}};
 use crate::auditor::opcode::{OpCodeStreamAuditor, OpCodeTotalAuditor};
 use crate::auditor::packet_time::PacketTimeAuditor;
 use crate::auditor::retransmission::{RetransmissionStreamAuditor, RetransmissionTotalAuditor};
@@ -24,6 +20,13 @@ use crate::auditor::roundtrip::{DORARoundtripStreamAuditor, DORARoundtripTotalAu
 use crate::auditor::{
     common::{AuditProfile, DHCPv4TransactionCache, SharedDHCPv4TransactionCache},
     conversation::{ConversationStreamAuditor, ConversationTotalAuditor},
+};
+use crate::auditor::{
+    common::{
+        AuditProfileCheck, DHCPv4PacketAuditorWithMetrics, DHCPv4TransactionAuditorWithMetrics,
+        GenericPacketAuditorWithMetrics,
+    },
+    spectrum::{DHCPv4SpectrumStreamAuditor, DHCPv4SpectrumTotalAuditor},
 };
 use crate::proto::dhcp::v4::{self};
 
@@ -322,28 +325,20 @@ impl AnalyzerState {
         self.audit_generic(&packet).await;
 
         // Run protocol-specific audit.
-        match packet.filter {
-            Some(filter) => match filter.get_proto() {
-                Some(capture::Proto::Bootp) => {
-                    let packet_payload = packet.payload();
-                    match packet_payload {
-                        Ok(packet_payload) => {
-                            let packet_payload = v4::ReceivedPacket::new(&packet_payload);
-                            self.audit_dhcpv4(
-                                packet.header.ts,
-                                &packet.ipv4_source_address().unwrap(),
-                                &packet.ipv4_destination_address().unwrap(),
-                                &packet_payload,
-                            )
-                            .await;
-                        }
-                        // For now we ignore unsupported data links or truncated packets.
-                        _ => {}
-                    }
+        if let Some(filter) = packet.filter {
+            if let Some(capture::Proto::Bootp) = filter.get_proto() {
+                let packet_payload = packet.payload();
+                if let Ok(packet_payload) = packet_payload {
+                    let packet_payload = v4::ReceivedPacket::new(packet_payload);
+                    self.audit_dhcpv4(
+                        packet.header.ts,
+                        &packet.ipv4_source_address().unwrap(),
+                        &packet.ipv4_destination_address().unwrap(),
+                        &packet_payload,
+                    )
+                    .await;
                 }
-                _ => {}
-            },
-            None => {}
+            }
         }
     }
 
@@ -608,11 +603,11 @@ mod tests {
         for i in 0..10 {
             let test_packet = TestPacket::new_valid_bootp_packet();
             let test_packet = test_packet
-                .set(OPCODE_POS, &vec![OpCode::BootRequest.into()])
-                .set(SECS_POS, &vec![0, i]);
+                .set(OPCODE_POS, &[OpCode::BootRequest.into()])
+                .set(SECS_POS, &[0, i]);
             let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
             let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
-            let packet = ReceivedPacket::new(&test_packet.get());
+            let packet = ReceivedPacket::new(test_packet.get());
             analyzer
                 .audit_dhcpv4(
                     timeval {
@@ -697,12 +692,10 @@ mod tests {
         registry.register_collector(Box::new(analyzer.clone()));
         for i in 0..10 {
             let test_packet = TestPacket::new_valid_bootp_packet();
-            let test_packet = test_packet
-                .set(OPCODE_POS, &vec![1])
-                .set(SECS_POS, &vec![0, i]);
+            let test_packet = test_packet.set(OPCODE_POS, &[1]).set(SECS_POS, &[0, i]);
             let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
             let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
-            let packet = ReceivedPacket::new(&test_packet.get());
+            let packet = ReceivedPacket::new(test_packet.get());
             analyzer
                 .state
                 .read()

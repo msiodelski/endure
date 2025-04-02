@@ -82,8 +82,8 @@ impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
         _dest_ip_address: &Ipv4Addr,
         packet: &mut v4::SharedPartiallyParsedPacket,
     ) {
-        match packet.write().unwrap().opcode() {
-            Ok(opcode) => match opcode {
+        if let Ok(opcode) = packet.write().unwrap().opcode() {
+            match opcode {
                 OpCode::BootRequest => {
                     self.message_count.increase(METRIC_INDEX_BOOT_REQUEST);
                 }
@@ -93,8 +93,7 @@ impl DHCPv4PacketAuditor for OpCodeTotalAuditor {
                 OpCode::Invalid(_) => {
                     self.message_count.increase(METRIC_INDEX_INVALID);
                 }
-            },
-            Err(_) => {}
+            }
         };
     }
 }
@@ -219,8 +218,8 @@ impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
         _dest_ip_address: &Ipv4Addr,
         packet: &mut v4::SharedPartiallyParsedPacket,
     ) {
-        match packet.write().unwrap().opcode() {
-            Ok(opcode) => match opcode {
+        if let Ok(opcode) = packet.write().unwrap().opcode() {
+            match opcode {
                 OpCode::BootRequest => {
                     self.opcodes.increase(METRIC_INDEX_BOOT_REQUEST);
                 }
@@ -230,8 +229,7 @@ impl DHCPv4PacketAuditor for OpCodeStreamAuditor {
                 OpCode::Invalid(_) => {
                     self.opcodes.increase(METRIC_INDEX_INVALID);
                 }
-            },
-            Err(_) => {}
+            }
         };
     }
 }
@@ -320,7 +318,7 @@ mod tests {
         let config_context = AuditConfigContext::new().to_shared();
         let mut auditor = OpCodeTotalAuditor::create_auditor(&metrics_store, &config_context);
         let test_packet = TestPacket::new_valid_bootp_packet();
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootRequest.into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::BootRequest.into()]);
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
@@ -383,7 +381,7 @@ mod tests {
         // 3 are replies).
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(2).into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::Invalid(2).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
             auditor.audit(&source_ip_address, &destination_ip_address, packet);
@@ -440,7 +438,7 @@ mod tests {
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (5 requests, 3 replies and 2 invalid).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(3).into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::Invalid(3).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
             auditor.audit(&source_ip_address, &destination_ip_address, packet);
@@ -517,7 +515,7 @@ mod tests {
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
         let test_packet = TestPacket::new_valid_bootp_packet();
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootRequest.into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::BootRequest.into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         // Audit 5 request packets. They should constitute 100% of all packets.
         for _ in 0..5 {
@@ -554,7 +552,7 @@ mod tests {
         // are replies).
         let source_ip_address = Ipv4Addr::new(192, 168, 1, 1);
         let destination_ip_address = Ipv4Addr::new(192, 168, 1, 2);
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::BootReply.into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::BootReply.into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..3 {
             auditor.audit(&source_ip_address, &destination_ip_address, packet);
@@ -587,7 +585,7 @@ mod tests {
 
         // Finally, let's add some 2 invalid packets with opcode 3. We have a total of 10 packets
         // (50% of requests, 30% of replies and 20% invalid).
-        let test_packet = test_packet.set(OPCODE_POS, &vec![OpCode::Invalid(3).into()]);
+        let test_packet = test_packet.set(OPCODE_POS, &[OpCode::Invalid(3).into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
         for _ in 0..2 {
             auditor.audit(&source_ip_address, &destination_ip_address, packet);

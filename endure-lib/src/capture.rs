@@ -6,6 +6,7 @@
 use chrono::Local;
 use futures::StreamExt;
 use pcap::{Capture, Linktype, Offline, Packet, PacketCodec, PacketHeader, PacketStream, Savefile};
+use std::fmt;
 use std::marker::PhantomData;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -207,7 +208,7 @@ impl PacketCodec for PacketWrapperCodec {
             savefile.write(&packet);
         }
         PacketWrapper {
-            header: packet.header.clone(),
+            header: *packet.header,
             data: packet.data.to_vec(),
             filter: self.filter,
             data_link: self.datalink,
@@ -241,6 +242,29 @@ pub enum Proto {
 pub struct Filter {
     proto: Option<Proto>,
     port: Option<u16>,
+}
+
+impl fmt::Display for Filter {
+    /// Converts the filter to the text form.
+    ///
+    /// The returned value can be used directly in the [pcap] library
+    /// to set the filtering program.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut filter_text: String = String::new();
+        if let Some(proto) = &self.proto {
+            match proto {
+                Proto::TCP => filter_text.push_str("tcp"),
+                _ => filter_text.push_str("udp"),
+            }
+        }
+        if let Some(port) = &self.port {
+            if !filter_text.is_empty() {
+                filter_text.push(' ');
+            }
+            filter_text.push_str(format!("port {}", port).as_str())
+        }
+        write!(f, "{}", filter_text)
+    }
 }
 
 impl Filter {
@@ -280,7 +304,6 @@ impl Filter {
         Filter {
             proto: Some(Proto::Bootp),
             port: Some(port),
-            ..self
         }
     }
 
@@ -294,7 +317,6 @@ impl Filter {
         Filter {
             proto: Some(Proto::DHCPv6),
             port: Some(547),
-            ..self
         }
     }
 
@@ -319,7 +341,6 @@ impl Filter {
         Filter {
             proto: Some(Proto::DHCPv6),
             port: Some(port),
-            ..self
         }
     }
 
@@ -350,27 +371,6 @@ impl Filter {
     /// Returns protocol associated with the filter.
     pub fn get_proto(self) -> Option<Proto> {
         self.proto
-    }
-
-    /// Converts the filter to the text form.
-    ///
-    /// The returned value can be used directly in the [pcap] library
-    /// to set the filtering program.
-    pub fn to_string(&self) -> String {
-        let mut filter_text: String = String::new();
-        if let Some(proto) = &self.proto {
-            match proto {
-                Proto::TCP => filter_text.push_str("tcp"),
-                _ => filter_text.push_str("udp"),
-            }
-        }
-        if let Some(port) = &self.port {
-            if !filter_text.is_empty() {
-                filter_text.push_str(" ");
-            }
-            filter_text.push_str(format!("port {}", port).as_str())
-        }
-        filter_text
     }
 }
 
@@ -621,7 +621,7 @@ impl Listener<Inactive> {
         let stream = capture.stream(codec)?;
 
         // Spawn the asynchronous capture.
-        let _ = tokio::spawn(Self::capture_packets(stream, sender));
+        tokio::spawn(Self::capture_packets(stream, sender));
         Ok(Listener::<Active> {
             interface_name: self.interface_name,
             packet_filter: self.packet_filter,
@@ -639,13 +639,11 @@ impl Listener<Inactive> {
     pub fn loopback_name() -> Option<String> {
         let device_list = pcap::Device::list();
         match device_list {
-            Ok(device_list) => {
-                return device_list
-                    .iter()
-                    .find(|device| device.flags.is_loopback())
-                    .map(|device| device.name.clone())
-            }
-            Err(_) => return None,
+            Ok(device_list) => device_list
+                .iter()
+                .find(|device| device.flags.is_loopback())
+                .map(|device| device.name.clone()),
+            Err(_) => None,
         }
     }
 }
@@ -770,7 +768,7 @@ impl Reader<Active> {
             },
         })?;
         Ok(PacketWrapper {
-            header: packet.header.clone(),
+            header: *packet.header,
             data: packet.data.to_vec(),
             filter: self.packet_filter,
             data_link: capture.get_datalink(),

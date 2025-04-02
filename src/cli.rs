@@ -47,7 +47,7 @@ fn directory_path_parser(path: &str) -> Result<String, String> {
     if !path.is_dir() {
         return Err(format!("{:?} is not a directory", path));
     }
-    return Ok(path.as_os_str().to_str().unwrap().to_string());
+    Ok(path.as_os_str().to_str().unwrap().to_string())
 }
 
 /// A parser checking if the path of the specified file exists.
@@ -70,7 +70,7 @@ fn directory_path_file_parser(path: &str) -> Result<String, String> {
             return Err(format!("directory {:?} does not exist", parent));
         }
     }
-    return Ok(path.as_os_str().to_str().unwrap().to_string());
+    Ok(path.as_os_str().to_str().unwrap().to_string())
 }
 
 /// A parser checking if the specified file exists.
@@ -84,7 +84,7 @@ fn file_path_parser(path: &str) -> Result<String, String> {
     if path.is_file() && path.exists() {
         return Ok(path.as_os_str().to_str().unwrap().to_string());
     }
-    return Err(format!("path {:?} does not exist", path));
+    Err(format!("path {:?} does not exist", path))
 }
 
 /// An enum that defines the supported subcommands.
@@ -229,7 +229,7 @@ impl Cli {
                         }
                         let result = dispatcher.add_listener(listener);
                         if let Some(err) = result.err() {
-                            eprintln!("{}", err.to_string());
+                            eprintln!("{}", err);
                             exit(128);
                         }
                     }
@@ -279,7 +279,7 @@ impl Cli {
                     let result = dispatcher.dispatch().await;
                     match result {
                         Err(err) => {
-                            eprintln!("{}", err.to_string());
+                            eprintln!("{}", err);
                             exit(128);
                         }
                         _ => exit(0),
@@ -376,7 +376,7 @@ impl Cli {
                     match result {
                         Ok(()) => exit(0),
                         Err(err) => {
-                            eprintln!("{}", err.to_string());
+                            eprintln!("{}", err);
                             exit(1);
                         }
                     }

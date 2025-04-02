@@ -412,7 +412,7 @@ mod tests {
         let dest_ip_address = Ipv4Addr::new(192, 168, 1, 2);
 
         // Set the opcode to the type unsupported by the auditor.
-        let test_packet = TestPacket::new_valid_dhcp_packet().set(OPCODE_POS, &vec![opcode.into()]);
+        let test_packet = TestPacket::new_valid_dhcp_packet().set(OPCODE_POS, &[opcode.into()]);
         let packet = &mut ReceivedPacket::new(test_packet.get()).into_shared_parsable();
 
         // Run the audit.

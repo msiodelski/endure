@@ -4,7 +4,7 @@ use crate::proto::dhcp::v4::{
     MessageType, OPTION_CODE_DHCP_MESSAGE_TYPE, OPTION_CODE_SERVER_IDENTIFIER,
 };
 
-const VALID_BOOTP_PACKET: &'static [u8] = &[
+const VALID_BOOTP_PACKET: &[u8] = &[
     2, // op (1 byte) = BOOTREPLY
     1, // htype (1 byte) = Ethernet
     6, // hlen (1 byte)
@@ -30,7 +30,7 @@ const VALID_BOOTP_PACKET: &'static [u8] = &[
     0, // vend (64 bytes)
 ];
 
-const VALID_DHCP_PACKET: &'static [u8] = &[
+const VALID_DHCP_PACKET: &[u8] = &[
     1, // op (1 byte) = BOOTREQUEST
     1, // htype (1 byte) = Ethernet
     6, // hlen (1 byte)
@@ -58,7 +58,7 @@ const VALID_DHCP_PACKET: &'static [u8] = &[
     255, // option 255: END
 ];
 
-const BASE_DHCP_PACKET: &'static [u8] = &[
+const BASE_DHCP_PACKET: &[u8] = &[
     1, // op (1 byte) = BOOTREQUEST
     1, // htype (1 byte) = Ethernet
     6, // hlen (1 byte)
@@ -107,7 +107,7 @@ impl TestPacket {
     }
 
     pub fn new_dhcp_packet_with_message_type(message_type: MessageType) -> Self {
-        Self::new_base_dhcp_packet().append(&vec![
+        Self::new_base_dhcp_packet().append(&[
             OPTION_CODE_DHCP_MESSAGE_TYPE,
             1,
             message_type.into(),
@@ -115,7 +115,7 @@ impl TestPacket {
     }
 
     pub fn new_dhcp_packet_with_server_identifier(server_identifier: Ipv4Addr) -> Self {
-        Self::new_base_dhcp_packet().append(&vec![
+        Self::new_base_dhcp_packet().append(&[
             OPTION_CODE_SERVER_IDENTIFIER,
             4,
             server_identifier.octets()[0],

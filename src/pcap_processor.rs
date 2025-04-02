@@ -157,21 +157,17 @@ impl PcapProcessor {
                     let mut writer = WriterBuilder::new()
                         .has_headers(false)
                         .from_writer(stdout());
-                    return PcapProcessor::run_with_csv_writer(
+                    PcapProcessor::run_with_csv_writer(
                         report_type,
                         &mut analyzer,
                         &mut reader,
                         &mut writer,
                     )
-                    .await;
+                    .await
                 }
                 ReportFormat::Json => {
-                    return PcapProcessor::run_with_json_writer(
-                        &mut analyzer,
-                        &mut reader,
-                        &mut stdout(),
-                    )
-                    .await;
+                    PcapProcessor::run_with_json_writer(&mut analyzer, &mut reader, &mut stdout())
+                        .await
                 }
             },
             OutputDest::File(output) => match self.report_format {
@@ -184,13 +180,13 @@ impl PcapProcessor {
                             path: output.clone(),
                             details: err.to_string(),
                         })?;
-                    return PcapProcessor::run_with_csv_writer(
+                    PcapProcessor::run_with_csv_writer(
                         report_type,
                         &mut analyzer,
                         &mut reader,
                         &mut writer,
                     )
-                    .await;
+                    .await
                 }
                 ReportFormat::Json => {
                     let mut writer = File::create(output.clone()).map_err(|err| {
@@ -199,12 +195,8 @@ impl PcapProcessor {
                             details: err.to_string(),
                         }
                     })?;
-                    return PcapProcessor::run_with_json_writer(
-                        &mut analyzer,
-                        &mut reader,
-                        &mut writer,
-                    )
-                    .await;
+                    PcapProcessor::run_with_json_writer(&mut analyzer, &mut reader, &mut writer)
+                        .await
                 }
             },
         }

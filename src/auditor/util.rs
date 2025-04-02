@@ -19,8 +19,7 @@ impl<Sample> RingBuffer<Sample> {
     /// - `buffer_size` is a buffer size.
     ///
     fn new(buffer_size: usize) -> Self {
-        let mut samples = Vec::<Sample>::new();
-        samples.reserve(buffer_size);
+        let samples = Vec::<Sample>::with_capacity(buffer_size);
         Self {
             buffer_size,
             samples,
@@ -393,7 +392,7 @@ impl<const METRICS_NUM: usize> FromMetricScope for PercentSMA<METRICS_NUM> {
             MetricScope::Total => {
                 panic!("cannot create PercentSMA instance from MetricScope::Total")
             }
-            MetricScope::Moving(window_size) => Self::new(window_size.to_owned() as usize),
+            MetricScope::Moving(window_size) => Self::new(window_size.to_owned()),
         }
     }
 }
@@ -495,7 +494,7 @@ impl<const PRECISION: usize> FromMetricScope for RoundedSMA<PRECISION> {
             MetricScope::Total => {
                 panic!("cannot create RoundedSMA instance from MetricScope::Total")
             }
-            MetricScope::Moving(window_size) => Self::new(window_size.to_owned() as usize),
+            MetricScope::Moving(window_size) => Self::new(window_size.to_owned()),
         }
     }
 }
