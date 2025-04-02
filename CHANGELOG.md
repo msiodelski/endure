@@ -1,5 +1,11 @@
 # ChangeLog
 
+* Implemented `spectrum` auditors reporting statistics of the DHCPv4
+  traffic types distribution. It includes the number of 4-way exchanges,
+  Renew, Rebind, Inform and Release transactions initiated by the
+  clients.
+  (Github #69, #71)
+
 * Implemented `conversation` auditors reporting the number of broadcast
   unicast and relayed DHCPv4 messages sent to the server.
   (Github #68, #70)
