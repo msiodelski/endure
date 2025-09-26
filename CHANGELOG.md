@@ -1,5 +1,8 @@
 # ChangeLog
 
+* Added Cargo.lock to the repository.
+  (Github #76, #77)
+
 ## Release v0.5.0 (April 2nd, 2025)
 
 * Extended DHCPv4 dashboard in Grafana with the `spectrum` and
