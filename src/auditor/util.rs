@@ -375,7 +375,7 @@ impl<const METRICS_NUM: usize> TotalCounter<METRICS_NUM> {
 /// # Generic Parameters
 ///
 /// - `METRICS_NUM` - specifies the number of tracked metrics. In the case
-///    described above, it will be `3`.
+///   described above, it will be `3`.
 ///
 /// # Precision
 ///
