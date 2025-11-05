@@ -7,6 +7,12 @@ authors = ["Marcin Siodelski <msiodelski@gmail.com>"]
 description = "DHCP diagnostics utility"
 license = "MIT"
 
+[package.metadata.nfpm]
+epoch = "2"
+contents = [
+    { src = "LICENSE", dst = "/usr/share/licenses/endure/LICENSE" },
+]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

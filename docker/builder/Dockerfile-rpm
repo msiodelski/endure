@@ -1,0 +1,38 @@
+# Base image for building the Debian package. The TARGETPLATFORM is an
+# automatic build arg set by BuildKit/Buildx to the platform for which
+# it is building.
+ARG TARGETPLATFORM
+FROM fedora:40 AS builder
+
+WORKDIR /app
+
+# Install build and runtime dependencies
+RUN dnf -y update && \
+    dnf -y install rust cargo gcc pkgconf-pkg-config libpcap-devel && \
+    dnf clean all
+
+# Copy the project sources.
+COPY endure-lib/ ./endure-lib/
+COPY endure-macros/ ./endure-macros/
+COPY src/ ./src/
+COPY Cargo.toml .
+COPY Cargo.lock .
+COPY LICENSE .
+
+# Build the release binary.
+RUN cargo build --release
+
+# Install cargo-nfpm for packaging.
+RUN cargo install --locked cargo-nfpm
+
+# Create output directory.
+RUN mkdir -p /out
+
+# Package .rpm into /out.
+RUN cargo nfpm package -f rpm -o /out
+
+# Export the package to the host system.
+FROM scratch AS export
+COPY --from=builder /out/*.rpm .
+
+

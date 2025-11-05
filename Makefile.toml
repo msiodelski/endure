@@ -1,0 +1,46 @@
+[env]
+# This setting causes cargo-make to work across a multi-package
+# Rust workspace. When it is set, cargo-make looks for tasks
+# in the Makefile.toml.
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+DIST_DIR = "./target/dist"
+
+[tasks.build]
+description = "Build a release version of the project"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.package-base]
+private = true
+workspace = false
+command = "docker"
+args = ["buildx", "build", "--platform", "${DOCKER_PLATFORM}", "-o", "type=local,dest=${DIST_DIR}", "-f", "${DOCKERFILE}", "."]
+
+[tasks.package-deb-amd64]
+description = "Create a Debian package for AMD64 architecture"
+private = false
+extend = "package-base"
+env = { DOCKERFILE = "./docker/builder/Dockerfile-deb", DOCKER_PLATFORM = "linux/amd64" }
+
+[tasks.package-deb-arm64]
+description = "Create a Debian package for ARM64 architecture"
+private = false
+extend = "package-base"
+env = { DOCKERFILE = "./docker/builder/Dockerfile-deb", DOCKER_PLATFORM = "linux/arm64" }
+
+[tasks.package-rpm-amd64]
+description = "Create an RPM package for AMD64 architecture"
+private = false
+extend = "package-base"
+env = { DOCKERFILE = "./docker/builder/Dockerfile-rpm", DOCKER_PLATFORM = "linux/amd64" }
+
+[tasks.package-rpm-arm64]
+description = "Create an RPM package for ARM64 architecture"
+private = false
+extend = "package-base"
+env = { DOCKERFILE = "./docker/builder/Dockerfile-rpm", DOCKER_PLATFORM = "linux/arm64" }
+
+[tasks.packages]
+description = "Create DEB and RPM packages for AMD64 and ARM64 architectures"
+workspace = false
+dependencies = ["package-deb-amd64", "package-deb-arm64", "package-rpm-amd64", "package-rpm-arm64"]
