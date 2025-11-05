@@ -1,5 +1,9 @@
 # ChangeLog
 
+* Building `deb` and `rpm` packages using
+  [cargo-make](https://github.com/sagiegurari/cargo-make).
+  (Github #78, #79)
+
 * Added Cargo.lock to the repository.
   (Github #76, #77)
 
