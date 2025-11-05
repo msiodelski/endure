@@ -14,7 +14,7 @@ $ apt install libpcap-dev
 
 ### Building with Cargo
 
-Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility. It was tested with `rustc` version is 1.82.
+Endure is written in [Rust](https://www.rust-lang.org) and can be compiled using the [cargo](https://doc.rust-lang.org/cargo/) utility. It was tested with `rustc` version 1.82.
 
 ```
 $ cd endure
@@ -22,6 +22,44 @@ $ cargo build --release
 ```
 
 The resulting binary can be found in the `endure/target/release` directory.
+
+Endure build system is integrated with [cargo-make](https://github.com/sagiegurari/cargo-make), a popular task runner for Rust. To use it for building and/or packaging the project:
+
+```
+$ cargo install --force cargo-make
+```
+
+To build the project:
+
+```
+$ cargo make build
+```
+
+### Packaging with cargo-make
+
+Building `deb` and `rpm` packages for the project is possible through [cargo-make](https://github.com/sagiegurari/cargo-make) tasks. These tasks internally run [nfpm](https://github.com/goreleaser/nfpm) package manager on Docker containers, specific to the architecture for which the packages are built.
+
+To build all packages, run:
+
+```
+$ cargo make packages
+```
+
+The generated packages can be found under `target/release/dist`.
+
+It is also possible to build selected packages. For example:
+
+```
+$ cargo make package-deb-arm64
+```
+
+builds a `deb` package for ARM64 architecture.
+
+List available `cargo-make` tasks with:
+
+```
+$ cargo make --list-all-steps
+```
 
 ### Running the Utility
 
@@ -47,11 +85,16 @@ two containers, one with a [Prometheus](https://prometheus.io) instance, and one
 This setup requires that [Host network driver](https://docs.docker.com/engine/network/drivers/host/) is enabled
 in Docker.
 
-Launch the containers using the following commands:
+Launch the containers in background using the following commands:
 
 ```
-$ cd docker
-$ docker compose up
+$ cargo make services-up
+```
+
+In order to stop the containers:
+
+```
+$ cargo make services-down
 ```
 
 Prometheus is configured to scrape the metrics from http://localhost:9100. Make sure that `endure`
