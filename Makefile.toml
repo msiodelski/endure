@@ -44,3 +44,19 @@ env = { DOCKERFILE = "./docker/builder/Dockerfile-rpm", DOCKER_PLATFORM = "linux
 description = "Create DEB and RPM packages for AMD64 and ARM64 architectures"
 workspace = false
 dependencies = ["package-deb-amd64", "package-deb-arm64", "package-rpm-amd64", "package-rpm-arm64"]
+
+[tasks.services-up]
+description = "Start services in Docker: Prometheus and Grafana"
+workspace = false
+script = [
+    "cd docker/services",
+    "docker compose up --detach"
+]
+
+[tasks.services-down]
+description = "Stop services in Docker: Prometheus and Grafana"
+workspace = false
+script = [
+    "cd docker/services",
+    "docker compose down"
+]
