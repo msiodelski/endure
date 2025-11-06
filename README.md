@@ -35,6 +35,10 @@ To build the project:
 $ cargo make build
 ```
 
+### Installing from Packages
+
+Starting from Endure 0.6.0, each release comes with `deb` and `rpm` packages for AMD64 and ARM64 architectures published on GitHub.
+
 ### Packaging with cargo-make
 
 Building `deb` and `rpm` packages for the project is possible through [cargo-make](https://github.com/sagiegurari/cargo-make) tasks. These tasks internally run [nfpm](https://github.com/goreleaser/nfpm) package manager on Docker containers, specific to the architecture for which the packages are built.
