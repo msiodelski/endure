@@ -1,5 +1,7 @@
 # ChangeLog
 
+## Release v0.6.0 (November 6th, 2025)
+
 * Building `deb` and `rpm` packages using
   [cargo-make](https://github.com/sagiegurari/cargo-make).
   (Github #78, #79)

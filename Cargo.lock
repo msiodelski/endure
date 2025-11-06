@@ -755,7 +755,7 @@ dependencies = [
 
 [[package]]
 name = "endure"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "actix-web",
  "actix-web-lab",
@@ -784,7 +784,7 @@ dependencies = [
 
 [[package]]
 name = "endure-lib"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "assert_json",
  "async-trait",
@@ -805,7 +805,7 @@ dependencies = [
 
 [[package]]
 name = "endure-macros"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "quote",
  "syn",
