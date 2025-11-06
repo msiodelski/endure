@@ -1001,7 +1001,7 @@ mod tests {
                 len: 0,
             },
             data: vec![0; data_length],
-            data_link: data_link,
+            data_link,
         }
     }
 

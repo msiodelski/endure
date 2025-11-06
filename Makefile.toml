@@ -16,6 +16,13 @@ command = "cargo"
 args = ["test", "--workspace", "--all-features", "--", "--include-ignored"]
 dependencies = ["build"]
 
+[tasks.lints]
+description = "Run linters against the code"
+script = [
+    "cargo clippy --all-targets --all-features -- -D warnings",
+    "cargo fmt --all -- --check"
+]
+
 [tasks.package-base]
 private = true
 workspace = false
