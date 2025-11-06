@@ -10,6 +10,12 @@ description = "Build a release version of the project"
 command = "cargo"
 args = ["build", "--release"]
 
+[tasks.test]
+description = "Run workspace tests"
+command = "cargo"
+args = ["test", "--workspace", "--all-features", "--", "--include-ignored"]
+dependencies = ["build"]
+
 [tasks.package-base]
 private = true
 workspace = false
